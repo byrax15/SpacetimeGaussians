@@ -880,8 +880,11 @@ def readColmapSceneInfoTechnicolor(path, images, eval, llffhold=8, multiview=Fal
 
 
     if eval:
-            train_cam_infos = [_ for _ in cam_infos if "cam10" not in _.image_name]
-            test_cam_infos = [_ for _ in cam_infos if "cam10" in _.image_name]
+            import re
+            cam10=re.compile('^cam0*10$')
+            train_cam_infos = [_ for _ in cam_infos if not cam10.match(_.image_name)]
+            test_cam_infos = [_ for _ in cam_infos if cam10.match(_.image_name)]
+            print("train/test counts: ",len(train_cam_infos),len(test_cam_infos))
             if len(test_cam_infos) > 0:
                 uniquecheck = []
                 for cam_info in test_cam_infos:

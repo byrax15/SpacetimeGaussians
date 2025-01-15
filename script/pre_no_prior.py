@@ -36,7 +36,10 @@ import sys
 import argparse
 import natsort
 
-from script.pre_n3d import extractframes
+try:
+    from script.pre_n3d import extractframes
+except:
+    from pre_n3d import extractframes
 
 sys.path.append(".")
 from thirdparty.gaussian_splatting.utils.my_utils import posetow2c_matrcs, rotmat2qvec
