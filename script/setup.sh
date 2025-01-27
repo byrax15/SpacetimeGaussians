@@ -5,7 +5,8 @@ conda create -n feature_splatting python=3.7.13
 conda activate feature_splatting
 
 # seems that we sometimes got stuck in environment.yml, so we install the packages one by one
-conda install pytorch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1 cudatoolkit=11.6 -c pytorch -c conda-forge
+#conda install pytorch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1 cudatoolkit=11.6 -c pytorch -c nvidia -c conda-forge
+conda install pytorch==1.13.0 torchvision==0.14.0 torchaudio==0.13.0 pytorch-cuda=11.6 cudatoolkit=11.6 -c pytorch -c nvidia
 
 
 # Install for Gaussian Rasterization (Ch9) - Ours-Full
