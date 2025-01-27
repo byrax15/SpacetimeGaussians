@@ -1,13 +1,16 @@
 #!/bin/bash
 
 
-conda create -n feature_splatting python=3.7.13
+conda create -n feature_splatting 
 conda activate feature_splatting
 
+PACKAGES="python numpy<2 pytorch-cuda=12.1 pytorch torchvision torchaudio"
 # seems that we sometimes got stuck in environment.yml, so we install the packages one by one
-#conda install pytorch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1 cudatoolkit=11.6 -c pytorch -c nvidia -c conda-forge
-conda install pytorch==1.13.0 torchvision==0.14.0 torchaudio==0.13.0 pytorch-cuda=11.6 cudatoolkit=11.6 -c pytorch -c nvidia
+conda install -y $PACKAGES -c pytorch -c conda-forge -c nvidia
 
+# install opencv-python-headless, to work with colmap on server
+# other packages
+pip install opencv-python natsort scipy kornia plyfile tqdm scikit-image
 
 # Install for Gaussian Rasterization (Ch9) - Ours-Full
 pip install thirdparty/gaussian_splatting/submodules/gaussian_rasterization_ch9
@@ -21,19 +24,12 @@ pip install thirdparty/gaussian_splatting/submodules/forward_full
 # Install for Forward Lite - Ours-Lite (speed up testing)
 pip install thirdparty/gaussian_splatting/submodules/forward_lite
 
-
 # install simpleknn
 pip install thirdparty/gaussian_splatting/submodules/simple-knn
 
-# install opencv-python-headless, to work with colmap on server
-pip install opencv-python
 # Install MMCV for CUDA KNN, used for init point sampling, reduce number of points when sfm points are too many
 pip install -e thirdparty/mmcv -v # take ~30min; if mmcv dir is empty: `git submodule update --init` (or git clone with --recursive)
 
-# other packages
-pip install natsort
-pip install scipy
-pip install kornia
 # install colmap for preprocess, work with python3.8
 conda create -n colmapenv python=3.8
 conda activate colmapenv
