@@ -9,7 +9,7 @@ PACKAGES="python numpy<2 pytorch-cuda=12.1 pytorch torchvision torchaudio"
 conda install -y $PACKAGES -c pytorch -c conda-forge -c nvidia
 
 # install opencv-python-headless, to work with colmap on server
-# other packages
+# + other packages
 pip install opencv-python natsort scipy kornia plyfile tqdm scikit-image
 
 # Install for Gaussian Rasterization (Ch9) - Ours-Full
@@ -33,19 +33,11 @@ pip install -e thirdparty/mmcv -v # take ~30min; if mmcv dir is empty: `git subm
 # install colmap for preprocess, work with python3.8
 conda create -n colmapenv python=3.8
 conda activate colmapenv
-pip install opencv-python-headless
-pip install tqdm
-pip install natsort
-pip install Pillow
+pip install opencv-python-headless tqdm natsort Pillow
 # just some files need torch be installed.
-conda install pytorch==1.12.1 -c pytorch -c conda-forge
+conda install -y pytorch==1.12.1 -c pytorch -c conda-forge
 conda config --set channel_priority false
-conda install colmap -c conda-forge
-
-conda activate feature_splatting
-
-
-
+conda install -y colmap -c conda-forge
 
 ## Command to build real-time demo (optianal, Windows only, inference only, we provide the pre-built demo)
 # ```
