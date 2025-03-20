@@ -21,18 +21,16 @@
 # SOFTWARE.
 
 
-
-
 import os
 from pathlib import Path
 
-import cv2 
-import glob 
-import tqdm 
-import numpy as np 
+import cv2
+import glob
+import tqdm
+import numpy as np
 import shutil
 import pickle
-import sys 
+import sys
 import argparse
 import natsort
 
@@ -42,52 +40,47 @@ except:
     from pre_n3d import extractframes
 
 sys.path.append(".")
-from thirdparty.gaussian_splatting.utils.my_utils import posetow2c_matrcs, rotmat2qvec
-from thirdparty.colmap.pre_colmap import * 
-from thirdparty.gaussian_splatting.helper3dg import getcolmapsinglen3d
-from thirdparty.gaussian_splatting.colmap_loader import read_extrinsics_binary, read_intrinsics_binary
+from thirdparty.colmap.pre_colmap import *  # NOQA
+from thirdparty.gaussian_splatting.colmap_loader import read_extrinsics_binary, read_intrinsics_binary  # NOQA
+from thirdparty.gaussian_splatting.helper3dg import getcolmapsinglen3d  # NOQA
+from thirdparty.gaussian_splatting.utils.my_utils import posetow2c_matrcs, rotmat2qvec  # NOQA
 
 
 def get_cam_name(video_path):
-    return os.path.splitext(os.path.basename(video_path))[0] 
+    return os.path.splitext(os.path.basename(video_path))[0]
 
 
 def prepare_colmap(folder, offset, extension, point_root):
-    folderlist =  sorted(folder.iterdir())
+    folderlist = sorted(folder.iterdir())
 
     savedir = point_root / f"colmap_{offset}" / "input"
     savedir.mkdir(exist_ok=True, parents=True)
-        
-    for folder in folderlist :
+
+    for folder in folderlist:
         imagepath = folder / f"{offset}.{extension}"
         imagesavepath = savedir / f"{folder.name}.{extension}"
-        
+
         if (imagesavepath.exists()):
             continue
-            
+
         imagesavepath.symlink_to(imagepath.resolve())
 
-    
 
-
-    
-def convert_selected_cam_matrix_to_colmapdb(path, offset=0,ref_frame=0,image_ext="png"):
-    
-    # 
-
+def convert_selected_cam_matrix_to_colmapdb(path, offset=0, ref_frame=0, image_ext="png"):
     projectfolder = path / f"colmap_{offset}"
-    refprojectfolder =  path / f"colmap_{ref_frame}"
+    refprojectfolder = path / f"colmap_{ref_frame}"
     manualfolder = projectfolder / "manual"
 
-    
-    cameras_extrinsic_file = refprojectfolder / "distorted" / "sparse" / "0" / "images.bin" # from distorted?
-    cameras_intrinsic_file = refprojectfolder / "distorted" / "sparse" / "0" / "cameras.bin"
+    cameras_extrinsic_file = refprojectfolder / "distorted" / \
+        "sparse" / "0" / "images.bin"  # from distorted?
+    cameras_intrinsic_file = refprojectfolder / \
+        "distorted" / "sparse" / "0" / "cameras.bin"
 
     cam_extrinsics = read_extrinsics_binary(cameras_extrinsic_file)
     cam_intrinsics = read_intrinsics_binary(cameras_intrinsic_file)
 
-    manualfolder.mkdir(exist_ok=True)     
-    
+    manualfolder.mkdir(exist_ok=True)
+
     savetxt = manualfolder / "images.txt"
     savecamera = manualfolder / "cameras.txt"
     savepoints = manualfolder / "points3D.txt"
@@ -101,13 +94,14 @@ def convert_selected_cam_matrix_to_colmapdb(path, offset=0,ref_frame=0,image_ext
     db = COLMAPDatabase.connect(db_file)
 
     db.create_tables()
-        
-    cam_extrinsics_by_name = {extr.name: extr for extr in cam_extrinsics.values()}
-    
+
+    cam_extrinsics_by_name = {
+        extr.name: extr for extr in cam_extrinsics.values()}
+
     videopaths = sorted((refprojectfolder / "images").glob(f"*.{image_ext}"))
-    
+
     for i, videopath in enumerate(videopaths):
-        filename = videopath.name #eg cam00.png
+        filename = videopath.name  # eg cam00.png
         extr = cam_extrinsics_by_name[filename]
         intr = cam_intrinsics[extr.camera_id]
 
@@ -117,19 +111,20 @@ def convert_selected_cam_matrix_to_colmapdb(path, offset=0,ref_frame=0,image_ext
 
         colmapQ = extr.qvec
         T = extr.tvec
-        
 
         id = str(i+1)
-        
-        line = f"{id} " + " ".join(map(str, colmapQ)) + " " + " ".join(map(str, T)) + f" {id} {filename}\n"
+
+        line = f"{id} " + " ".join(map(str, colmapQ)) + \
+            " " + " ".join(map(str, T)) + f" {id} {filename}\n"
         imagetxtlist.append(line)
         imagetxtlist.append("\n")
 
         camera_id = db.add_camera(4, w, h, params)
         cameraline = f"{id} OPENCV {w} {h} {' '.join(params.astype(str))} \n"
         cameratxtlist.append(cameraline)
-        
-        image_id = db.add_image(filename, camera_id,  prior_q=colmapQ, prior_t=T, image_id=id)
+
+        image_id = db.add_image(filename, camera_id,
+                                prior_q=colmapQ, prior_t=T, image_id=id)
         db.commit()
     db.close()
 
@@ -137,7 +132,8 @@ def convert_selected_cam_matrix_to_colmapdb(path, offset=0,ref_frame=0,image_ext
     savecamera.write_text("".join(cameratxtlist))
     savepoints.write_text("")
 
-if __name__ == "__main__" :
+
+if __name__ == "__main__":
     """
     give a videos in 
     videosroot/o.mp4
@@ -157,25 +153,24 @@ if __name__ == "__main__" :
     parser.add_argument("--startframe", default=0, type=int)
     parser.add_argument("--endframe", default=50, type=int)
     parser.add_argument("--refframe", default=0, type=int)
+    parser.add_argument("--single_camera", action="store_true")
 
     args = parser.parse_args()
 
     # check image extension
-    if args.imageext not in ["png","jpeg", "jpg"]:
+    if args.imageext not in ["png", "jpeg", "jpg"]:
         print("wrong extension")
         quit()
-   
+
     # get input config
     image_ext = args.imageext
     videos_dir = Path(args.videosdir)
     start_frame_num = args.startframe
     end_frame_num = args.endframe
     duration = args.endframe - args.startframe
-    
+
     # archor frame number offset to get pose.
     pose_ref_frame_num = args.refframe
-  
-    
 
     # input checking
     if start_frame_num >= end_frame_num:
@@ -186,42 +181,40 @@ if __name__ == "__main__" :
         print("path not exist")
         quit()
 
-    
-    #step 1 videos to pngs. TODO .jpg but jpg contains artifacts.
+    # step 1 videos to pngs. TODO .jpg but jpg contains artifacts.
     print(f"Start extracting {duration} frames from videos at {videos_dir}")
     video_path_list = sorted(videos_dir.glob("*.mp4"))
     for video_path in tqdm.tqdm(video_path_list):
-        extractframes(video_path, start_frame_num, end_frame_num, save_subdir='frames', ext=image_ext)
-    
-    
+        extractframes(video_path, start_frame_num, end_frame_num,
+                      save_subdir='frames', ext=image_ext)
+
     # create video path
     decoded_frame_root = videos_dir / "frames"
 
-    ## step2 prepare colmap input 
+    # step2 prepare colmap input
     point_root = videos_dir / "point"
     print("start preparing colmap image input")
     for offset in range(start_frame_num, end_frame_num):
         prepare_colmap(decoded_frame_root, offset, image_ext, point_root)
 
-
-
-    # step3, colmap without gt pose 
+    # step3, colmap without gt pose
     colmap_project_root = videos_dir / "point"
 
-    pose_ref_frame_project = colmap_project_root / f"colmap_{pose_ref_frame_num}"
+    pose_ref_frame_project = colmap_project_root / \
+        f"colmap_{pose_ref_frame_num}"
     cmd = f"python thirdparty/gaussian_splatting/convert.py -s {pose_ref_frame_project}"
 
     exit_code = os.system(cmd)
     if exit_code != 0:
         exit(exit_code)
 
-    # step4, use that pose/intrics for the rest models 
+    # step4, use that pose/intrics for the rest models
     for frame_num in range(start_frame_num, end_frame_num):
         if frame_num != pose_ref_frame_num:
-            convert_selected_cam_matrix_to_colmapdb(colmap_project_root, frame_num, pose_ref_frame_num, image_ext)
-
-
+            convert_selected_cam_matrix_to_colmapdb(
+                colmap_project_root, frame_num, pose_ref_frame_num, image_ext)
 
     for frame_num in range(start_frame_num, end_frame_num):
         if frame_num != pose_ref_frame_num:
-            getcolmapsinglen3d(colmap_project_root, frame_num)
+            getcolmapsinglen3d(colmap_project_root,
+                               frame_num, args.single_camera)
