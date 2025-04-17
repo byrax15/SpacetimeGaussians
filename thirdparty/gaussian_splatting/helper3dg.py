@@ -54,7 +54,7 @@ def getparser():
     parser.add_argument("--rgbfunction", type=str, default="rgbv1")
     parser.add_argument("--rdpip", type=str, default="v2")
     parser.add_argument("--configpath", type=str, default="None")
-    parser.add_argument("--yield_loss", action="store_true")
+    parser.add_argument("--no_yield_loss", action="store_true")
 
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
@@ -105,6 +105,8 @@ def gettestparse():
     parser.add_argument("--rdpip", type=str, default="v3")
     parser.add_argument("--valloader", type=str, default="colmap")
     parser.add_argument("--configpath", type=str, default="1")
+    parser.add_argument("-oc", "--override_config",
+                        nargs='*', type=lambda s: s.split("="), default=[])
 
     parser.add_argument("--quiet", action="store_true")
     args = get_combined_args(parser)
@@ -125,7 +127,11 @@ def gettestparse():
             except:
                 print("failed set config: " + k)
         print("finish load config from " + args.configpath)
-        print("args: " + str(args))
+
+    for k, v in args.override_config:
+        setattr(args, k, v)
+
+    print("args: " + str(args))
 
     return args, model.extract(args), pipeline.extract(args), multiview
 

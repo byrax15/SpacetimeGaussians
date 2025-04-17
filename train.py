@@ -42,7 +42,7 @@ from helper_train import getrenderpip, getmodel, getloss, controlgaussians, relo
 from thirdparty.gaussian_splatting.utils.loss_utils import l1_loss, ssim, l2_loss, rel_loss  # NOQA
 
 
-def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration=50, rgbfunction="rgbv1", rdpip="v2", yield_loss=False):
+def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration=50, rgbfunction="rgbv1", rdpip="v2", yield_loss=True):
     with open(os.path.join(args.model_path, "cfg_args"), 'w') as cfg_log_f:
         cfg_log_f.write(str(Namespace(**vars(args))))
 
@@ -120,7 +120,7 @@ def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration
     lossdiect = {}
     ssimdict = {}
     depthdict = {}
-    validdepthdict = {}
+    # validdepthdict = {}
     emsstartfromiterations = opt.emsstart
 
     with torch.no_grad():
@@ -130,18 +130,19 @@ def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration
             render_pkg = render(viewpoint_cam, gaussians, pipe, background,  override_color=None,
                                 basicfunction=rbfbasefunction, GRsetting=GRsetting, GRzer=GRzer)
 
-            _, depthH, depthW = render_pkg["depth"].shape
-            borderH = int(depthH/2)
-            borderW = int(depthW/2)
+            # _, depthH, depthW = render_pkg["depth"].shape
+            # borderH = int(depthH/2)
+            # borderW = int(depthW/2)
 
-            midh = int(viewpoint_cam.image_height/2)
-            midw = int(viewpoint_cam.image_width/2)
+            # midh = int(viewpoint_cam.image_height/2)
+            # midw = int(viewpoint_cam.image_width/2)
 
             depth = render_pkg["depth"]
             slectemask = depth != 15.0
-
-            validdepthdict[viewpoint_cam.image_name] = torch.median(
-                depth[slectemask]).item()
+            if not slectemask.any():
+                continue
+            # validdepthdict[viewpoint_cam.image_name] = torch.median(
+            #     depth[slectemask]).item()
             depthdict[viewpoint_cam.image_name] = torch.amax(
                 depth[slectemask]).item()
 
@@ -242,11 +243,11 @@ def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration
             # Progress bar
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
             if iteration % 10 == 0:
-                if loss_history:
+                if yield_loss:
                     loss_history.write(f"{iteration} {ema_loss_for_log}\n")
                 progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}"})
                 progress_bar.update(10)
-            if loss_history and iteration % 100 == 0:
+            if yield_loss and iteration % 100 == 0:
                 loss_history.flush()
             if iteration == opt.iterations:
                 progress_bar.close()
@@ -431,7 +432,7 @@ if __name__ == "__main__":
     setgtisint8(op_extract.gtisint8)
 
     train(lp_extract, op_extract, pp_extract, args.save_iterations, args.debug_from,
-          densify=args.densify, duration=args.duration, rgbfunction=args.rgbfunction, rdpip=args.rdpip, yield_loss=args.yield_loss)
+          densify=args.densify, duration=args.duration, rgbfunction=args.rgbfunction, rdpip=args.rdpip, yield_loss=not args.no_yield_loss,)
 
     # All done
     print("\nTraining complete.")

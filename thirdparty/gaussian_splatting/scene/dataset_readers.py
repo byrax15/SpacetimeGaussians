@@ -8,7 +8,7 @@
 #
 # For inquiries contact  george.drettakis@inria.fr
 #
-
+from __future__ import annotations
 import os
 import sys
 from PIL import Image
@@ -176,8 +176,7 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, near, far, 
 
 
 def readColmapCamerasTechnicolor(cam_extrinsics, cam_intrinsics, images_folder, near, far, startime=0, duration=50):
-
-    cam_infos = []
+    cam_infos: list[CameraInfo] = []
     totalcamname = []
     # first is cam20_ so we strictly sort by camera name
     for idx, key in enumerate(cam_extrinsics):
@@ -209,14 +208,11 @@ def readColmapCamerasTechnicolor(cam_extrinsics, cam_intrinsics, images_folder, 
         T = np.array(extr.tvec)
 
         if intr.model == "SIMPLE_PINHOLE":
-            focal_length_x = intr.params[0]
-            FovY = focal2fov(focal_length_x, height)
-            FovX = focal2fov(focal_length_x, width)
+            FovX, FovY = (focal2fov(intr.params[i], dim) for i, dim in zip([0,0], [width, height]))
+            cxr,cyr = (intr.params[i]/dim-.5 for i, dim in zip([1,2], [width, height]))
         elif intr.model == "PINHOLE":
-            focal_length_x = intr.params[0]
-            focal_length_y = intr.params[1]
-            FovY = focal2fov(focal_length_y, height)
-            FovX = focal2fov(focal_length_x, width)
+            FovX, FovY = (focal2fov(intr.params[i], dim) for i, dim in zip([0,1], [width, height]))
+            cxr,cyr = (intr.params[i]/dim-.5 for i, dim in zip([2,3], [width, height]))
         else:
             assert False, "Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!"
 
@@ -226,18 +222,6 @@ def readColmapCamerasTechnicolor(cam_extrinsics, cam_intrinsics, images_folder, 
             image_name = os.path.basename(image_path).split(".")[0]
             image_path = image_path.replace(
                 "colmap_"+str(startime), "colmap_{}".format(j), 1)
-
-            cxr = ((intr.params[2]) / width - 0.5)
-            cyr = ((intr.params[3]) / height - 0.5)
-
-            K = np.eye(3)
-            K[0, 0] = focal_length_x  # * 0.5
-            K[0, 2] = intr.params[2]  # * 0.5
-            K[1, 1] = focal_length_y  # * 0.5
-            K[1, 2] = intr.params[3]  # * 0.5
-
-            halfH = round(height / 2.0)
-            halfW = round(width / 2.0)
 
             assert os.path.exists(
                 image_path), "Image {} does not exist!".format(image_path)

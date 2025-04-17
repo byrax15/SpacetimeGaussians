@@ -1,4 +1,5 @@
 name: feature_splatting
+prefix: /home/aq85800/anaconda3/envs/feature_splatting
 channels:
   - pytorch
   - nvidia
@@ -191,11 +192,7 @@ dependencies:
       - addict==2.4.0
       - contourpy==1.3.1
       - cycler==0.12.1
-      - diff-gaussian-rasterization-ch3==0.0.0
-      - diff-gaussian-rasterization-ch9==0.0.0
       - fonttools==4.55.6
-      - forward-full==0.0.0
-      - forward-lite==0.0.0
       - fsspec==2024.12.0
       - imageio==2.37.0
       - kiwisolver==1.4.8
@@ -213,10 +210,14 @@ dependencies:
       - rich==13.9.4
       - scikit-image==0.25.1
       - scipy==1.15.1
-      - simple-knn==0.0.0
       - sympy==1.13.1
       - termcolor==2.5.0
       - tifffile==2025.1.10
       - tqdm==4.67.1
       - yapf==0.43.0
-prefix: /home/aq85800/anaconda3/envs/feature_splatting
+      - ../thirdparty/gaussian_splatting/submodules/gaussian_rasterization_ch3
+      - ../thirdparty/gaussian_splatting/submodules/gaussian_rasterization_ch9
+      - ../thirdparty/gaussian_splatting/submodules/forward_lite
+      - ../thirdparty/gaussian_splatting/submodules/forward_full
+      - ../thirdparty/gaussian_splatting/submodules/simple-knn
+      - ../thirdparty/mmcv

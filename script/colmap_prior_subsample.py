@@ -33,11 +33,10 @@ def out_lines(mode: OutModes, lines: list[str], inpath: Path):
 
 class ArgumentParser(Tap):
     sparse_model_dir: Path
-    camera_subsample: int  # Preserve the first out of every N camera views
-    camera_image_pattern = re.compile(
-        r"([0-9]+) (Camera[.][0-9]{3})")
+    camera_subsample: int = 1 # Preserve the first out of every N camera views
+    camera_image_pattern = re.compile(r"([0-9]+)( .* )[0-9]+ Camera[.]([0-9]{3})\n$")
     """A pattern matching and grouping the camera id and image name; must contain 2 groups"""
-    camera_new_name_format: str = "{cam_id} cam{image_number:03}.png"
+    camera_new_name_format = "{image_id}{middle}0 cam{image_name:03}.png\n"
     camera_new_name_first_image = 1
     out = OutModes
 
@@ -75,12 +74,15 @@ def downsample_images():
     filtered = [lines[i] for i in filter(select_line, range(len(lines)))]
 
     # Renumber images and relink to single camera
-    image_number = args.camera_new_name_first_image
+    image_number = 0
     for i, line in enumerate(filtered):
-        match = args.camera_image_pattern.search(line)
-        if match and len(match.groups()) == 2:
-            filtered[i] = line.replace(
-                match.group(), args.camera_new_name_format.format(cam_id=0, image_number=image_number))
+        image_name_match = args.camera_image_pattern.search(line)
+        if image_name_match:
+            filtered[i] = args.camera_new_name_format.format(
+                image_id=image_number,
+                middle=image_name_match.groups()[1],
+                image_name=image_number+args.camera_new_name_first_image,
+            )
             image_number += 1
 
     out_lines(args.out, filtered, image_path)

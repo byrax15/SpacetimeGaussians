@@ -1,4 +1,8 @@
 
+from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass
+import shutil
+import time
 from tap import Tap, tapify
 from pathlib import Path
 import re
@@ -11,7 +15,9 @@ class ArgumentParser(Tap):
     imageext: str = "png"
     no_single_camera: bool = False
     camera_model: str = "SIMPLE_PINHOLE"
+    mapper_ba_tolerance: float = 1e-6
     dryrun: bool = False
+    parallel: bool = False
     startframe: int = 0
     endframe: int
 
@@ -71,12 +77,20 @@ for cam in frames_dir.glob("cam*"):
                 pass
 
 
+@dataclass
+class UndistortedSparsePath:
+    src: Path
+    dst: Path
+
+
 class ColmapExecutor:
-    def __init__(self, point_dir: Path, frame_num: int, no_single_camera: bool, camera_model: str, dryrun: bool):
+    def __init__(self, point_dir: Path, frame_num: int, no_single_camera: bool, camera_model: str, dryrun: bool, mapper_ba_tolerance: float):
         self.frame_dir = point_dir / f"colmap_{frame_num}"
         self.database_path = self.frame_dir / "distorted" / "database.db"
         self.input_path = self.frame_dir / "input"
-        self.sparse_path = self.frame_dir / "distorted" / "sparse"
+        self.sparse_path = self.frame_dir / "distorted" / "sparse" / "0"
+        self.undistorted_sparse_path = UndistortedSparsePath(
+            self.frame_dir/"sparse", self.frame_dir/"sparse"/"0")
         self.dryrun = dryrun
         self.commands = [
             f"""colmap feature_extractor
@@ -93,7 +107,7 @@ class ColmapExecutor:
 --image_path {self.input_path}
 --output_path {self.sparse_path}
 --input_path {prior_data.prior}
---Mapper.ba_global_function_tolerance=1e-6
+--Mapper.ba_global_function_tolerance={mapper_ba_tolerance}
             """,
             f"""colmap image_undistorter
 --image_path {self.input_path}
@@ -104,17 +118,31 @@ class ColmapExecutor:
         ]
 
     def __call__(self):
-        for command in self.commands:
+        for i,command in enumerate(self.commands):
             if (self.dryrun):
                 print(command)
             else:
                 for dir in [self.sparse_path]:
                     dir.mkdir(parents=True, exist_ok=True)
                 code = os.system(command.replace('\n', ' '))
-                assert code == 0
+                if code != 0:
+                    raise Exception(f"Command failed with code {code}: {command}")
+
+        if not self.dryrun:
+            self.undistorted_sparse_path.dst.symlink_to(self.undistorted_sparse_path.src)
 
 
-for f in range(args.startframe, args.endframe):
-    executor = ColmapExecutor(
-        point_dir, f, args.no_single_camera, args.camera_model, args.dryrun)
-    executor()
+tasks = [ColmapExecutor(point_dir, f, args.no_single_camera, args.camera_model, args.dryrun, args.mapper_ba_tolerance)
+         for f in range(args.startframe, args.endframe)]
+print("Starting COLMAP Processing...")
+start_time = time.monotonic()
+if args.parallel:
+    # run every task in tasks in a separate process
+    with ProcessPoolExecutor() as pool:
+        asyncs = [pool.submit(t.__call__) for t in tasks]
+        [a.result() for a in asyncs]
+        pool.shutdown(wait=True)
+else:
+    [t() for t in tasks]  # [] forces evaluation, () is lazy
+end_time = time.monotonic()
+print("Duration (s): ",  end_time - start_time)

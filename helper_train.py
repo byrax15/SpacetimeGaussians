@@ -150,7 +150,6 @@ def getloss(opt, Ll1, ssim, image, gt_image, gaussians, radii):
         loss = (1.0 - opt.lambda_dssim) * Ll1  + 0.0002*opt.lambda_dssim * torch.sum(varaince) / N
     return loss 
 
-
 def freezweights(model, screenlist):
     for k in screenlist:
         grad_tensor = getattr(getattr(model, k), 'grad')
