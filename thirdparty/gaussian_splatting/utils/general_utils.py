@@ -51,51 +51,73 @@ def inverse_sigmoidv3(x):
 def sigmoidv3(x):
     return 1.4*torch.sigmoid(x) 
 
-
-def PILtoTorch(pil_image, resolution, threaded=False):
+def PILtoTorch(pil_image, resolution, threaded=True):
+    """
+    Convert PIL image to PyTorch tensor with optional threading.
+    
+    Args:
+        pil_image: PIL image or list of PIL images
+        resolution: Target resolution (width, height)
+        threaded: Whether to use the optimized threaded implementation
+        
+    Returns:
+        PyTorch tensor with shape [C, H, W]
+    """
     if threaded:
         return PILtoTorch_fast(pil_image, resolution)
-    resized_image_PIL = pil_image.resize(resolution)
-    resized_image = torch.from_numpy(np.array(resized_image_PIL)) / 255.0
+    
+    # Legacy non-threaded version
+    resized_image_PIL = pil_image.resize(resolution, Image.LANCZOS)  # Use LANCZOS for better quality
+    resized_image = torch.from_numpy(np.asarray(resized_image_PIL, dtype=np.float32)) / 255.0
     if len(resized_image.shape) == 3:
         return resized_image.permute(2, 0, 1)
     else:
         return resized_image.unsqueeze(dim=-1).permute(2, 0, 1)
 
 
-def PILtoTorch_fast(pil_image: Union[Image.Image, List[Image.Image]], 
-                   resolution: Tuple[int, int],
-                   num_threads: int = 4):
+def PILtoTorch_fast(pil_image, resolution, num_threads=None):
     """
-    Convert PIL image(s) to PyTorch tensor(s) with multi-threading support.
+    Optimized conversion of PIL image(s) to PyTorch tensor(s).
     
     Args:
-        pil_image: Single PIL image or list of PIL images
+        pil_image: PIL image or list of PIL images
         resolution: Target resolution (width, height)
-        num_threads: Number of threads to use for batch processing
+        num_threads: Number of threads for batch processing (auto-detected if None)
         
     Returns:
-        PyTorch tensor(s) with shape [C, H, W] for single image or [B, C, H, W] for batch
+        PyTorch tensor with shape [C, H, W] for single image or [B, C, H, W] for batch
     """
+    # Auto-detect optimal thread count if not specified
+    if num_threads is None:
+        import multiprocessing
+        num_threads = max(1, multiprocessing.cpu_count() // 2)
+    
+    # Fast path for single images (no threading overhead)
+    if isinstance(pil_image, Image.Image):
+        # Use Lanczos for better quality downsampling
+        resized_image_PIL = pil_image.resize(resolution, Image.LANCZOS)
+        
+        # Fast numpy conversion with proper data type
+        resized_image = torch.from_numpy(np.asarray(resized_image_PIL, dtype=np.float32)) / 255.0
+        
+        # Handle both RGB and grayscale images
+        if len(resized_image.shape) == 3:
+            return resized_image.permute(2, 0, 1)
+        else:
+            return resized_image.unsqueeze(dim=-1).permute(2, 0, 1)
+    
+    # Handle batch processing with multi-threading for lists of images
     def process_single_image(img):
-        # Use LANCZOS for better quality downsizing
         resized_image_PIL = img.resize(resolution, Image.LANCZOS)
-        # Optimize with asarray (avoids copy when possible) and specify dtype
         resized_image = torch.from_numpy(np.asarray(resized_image_PIL, dtype=np.float32)) / 255.0
         if len(resized_image.shape) == 3:
             return resized_image.permute(2, 0, 1)
         else:
             return resized_image.unsqueeze(dim=-1).permute(2, 0, 1)
     
-    # Handle single image case
-    if isinstance(pil_image, Image.Image):
-        return process_single_image(pil_image)
-    
-    # Handle batch processing with multi-threading
     with ThreadPoolExecutor(max_workers=num_threads) as executor:
         results = list(executor.map(process_single_image, pil_image))
     
-    # Stack results into a batch tensor
     return torch.stack(results)
 
 def get_expon_lr_func(
