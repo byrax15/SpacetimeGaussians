@@ -14,6 +14,10 @@ import sys
 from datetime import datetime
 import numpy as np
 import random
+import threading
+from PIL import Image
+from concurrent.futures import ThreadPoolExecutor
+from typing import Union, List, Tuple
 
 def inverse_sigmoid(x):
     return torch.log(x/(1-x))
@@ -48,13 +52,51 @@ def sigmoidv3(x):
     return 1.4*torch.sigmoid(x) 
 
 
-def PILtoTorch(pil_image, resolution):
+def PILtoTorch(pil_image, resolution, threaded=False):
+    if threaded:
+        return PILtoTorch_fast(pil_image, resolution)
     resized_image_PIL = pil_image.resize(resolution)
     resized_image = torch.from_numpy(np.array(resized_image_PIL)) / 255.0
     if len(resized_image.shape) == 3:
         return resized_image.permute(2, 0, 1)
     else:
         return resized_image.unsqueeze(dim=-1).permute(2, 0, 1)
+
+
+def PILtoTorch_fast(pil_image: Union[Image.Image, List[Image.Image]], 
+                   resolution: Tuple[int, int],
+                   num_threads: int = 4):
+    """
+    Convert PIL image(s) to PyTorch tensor(s) with multi-threading support.
+    
+    Args:
+        pil_image: Single PIL image or list of PIL images
+        resolution: Target resolution (width, height)
+        num_threads: Number of threads to use for batch processing
+        
+    Returns:
+        PyTorch tensor(s) with shape [C, H, W] for single image or [B, C, H, W] for batch
+    """
+    def process_single_image(img):
+        # Use LANCZOS for better quality downsizing
+        resized_image_PIL = img.resize(resolution, Image.LANCZOS)
+        # Optimize with asarray (avoids copy when possible) and specify dtype
+        resized_image = torch.from_numpy(np.asarray(resized_image_PIL, dtype=np.float32)) / 255.0
+        if len(resized_image.shape) == 3:
+            return resized_image.permute(2, 0, 1)
+        else:
+            return resized_image.unsqueeze(dim=-1).permute(2, 0, 1)
+    
+    # Handle single image case
+    if isinstance(pil_image, Image.Image):
+        return process_single_image(pil_image)
+    
+    # Handle batch processing with multi-threading
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        results = list(executor.map(process_single_image, pil_image))
+    
+    # Stack results into a batch tensor
+    return torch.stack(results)
 
 def get_expon_lr_func(
     lr_init, lr_final, lr_delay_steps=0, lr_delay_mult=1.0, max_steps=1000000

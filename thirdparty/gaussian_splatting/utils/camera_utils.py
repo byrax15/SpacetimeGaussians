@@ -17,6 +17,8 @@ from utils.general_utils import PILtoTorch
 from utils.graphics_utils import fov2focal
 import torch 
 import os 
+import threading
+from concurrent.futures import ThreadPoolExecutor
 WARNED = False
 
 
@@ -234,7 +236,10 @@ def loadCamnogt(args, id, cam_info, resolution_scale):
 
 
 
-def cameraList_from_camInfosv2(cam_infos, resolution_scale, args, ss=False):
+def cameraList_from_camInfosv2(cam_infos, resolution_scale, args, ss=False, threaded=False):
+    if threaded:
+        return cameraList_from_camInfosv2_threaded(cam_infos, resolution_scale, args, ss=ss)
+
     camera_list = []
 
     if not ss: #
@@ -246,12 +251,120 @@ def cameraList_from_camInfosv2(cam_infos, resolution_scale, args, ss=False):
             print("id", id)
 
     return camera_list
-def cameraList_from_camInfosv2nogt(cam_infos, resolution_scale, args):
+
+def cameraList_from_camInfosv2nogt(cam_infos, resolution_scale, args, threaded=False):
+    if threaded:
+        return cameraList_from_camInfosv2nogt_threaded(cam_infos, resolution_scale, args)
     camera_list = []
 
     for id, c in enumerate(cam_infos):
         camera_list.append(loadCamnogt(args, id, c, resolution_scale))
 
+    return camera_list
+
+def cameraList_from_camInfosv2_threaded(cam_infos, resolution_scale, args, ss=False, num_threads=8):
+    """
+    Multi-threaded version of cameraList_from_camInfosv2 that processes cameras in parallel
+    
+    Args:
+        cam_infos: List of camera information objects
+        resolution_scale: Scale factor for image resolution
+        args: Command line arguments
+        ss: Flag to use loadCamv2ss instead of loadCamv2
+        num_threads: Number of threads for parallel processing
+        
+    Returns:
+        List of Camera objects in the original order
+    """
+    # Global lock for thread safety
+    lock = threading.Lock()
+    
+    # Pre-check for large images and warn once if needed (to avoid race conditions)
+    if args.resolution == -1:
+        global WARNED
+        for c in cam_infos:
+            if hasattr(c, 'image') and c.image.size[0] > 1600:
+                with lock:
+                    if not WARNED:
+                        print("[ INFO ] Encountered quite large input images (>1.6K pixels width), "
+                              "rescaling to 1.6K.\n If this is not desired, please explicitly "
+                              "specify '--resolution/-r' as 1")
+                        WARNED = True
+                break
+    
+    # Worker function to process a single camera
+    def process_camera(idx):
+        try:
+            c = cam_infos[idx]
+            
+            # Process the camera based on ss flag
+            if not ss:
+                camera = loadCamv2(args, idx, c, resolution_scale)
+            else:
+                camera = loadCamv2ss(args, idx, c, resolution_scale)
+                with lock:
+                    print("id", idx)
+            
+            return idx, camera
+        except Exception as e:
+            with lock:
+                print(f"Error processing camera {idx}: {e}")
+            return idx, None
+    
+    # Process cameras in parallel using ThreadPoolExecutor
+    results = []
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        # Submit all tasks and collect futures
+        futures = [executor.submit(process_camera, idx) for idx in range(len(cam_infos))]
+        
+        # Get results as they complete
+        for future in futures:
+            try:
+                idx, camera = future.result()
+                if camera is not None:
+                    results.append((idx, camera))
+            except Exception as e:
+                with lock:
+                    print(f"Unexpected thread error: {e}")
+    
+    # Sort by index to maintain original order
+    results.sort(key=lambda x: x[0])
+    
+    # Extract cameras from the sorted results
+    camera_list = [camera for _, camera in results]
+    
+    return camera_list
+
+def cameraList_from_camInfosv2nogt_threaded(cam_infos, resolution_scale, args, num_threads=8):
+    """Multi-threaded version of cameraList_from_camInfosv2nogt"""
+    lock = threading.Lock()
+    
+    def process_camera(idx):
+        try:
+            c = cam_infos[idx]
+            camera = loadCamnogt(args, idx, c, resolution_scale)
+            return idx, camera
+        except Exception as e:
+            with lock:
+                print(f"Error processing camera {idx}: {e}")
+            return idx, None
+    
+    results = []
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        futures = [executor.submit(process_camera, idx) for idx in range(len(cam_infos))]
+        
+        for future in futures:
+            try:
+                idx, camera = future.result()
+                if camera is not None:
+                    results.append((idx, camera))
+            except Exception as e:
+                with lock:
+                    print(f"Unexpected thread error: {e}")
+    
+    results.sort(key=lambda x: x[0])
+    camera_list = [camera for _, camera in results]
+    
     return camera_list
 
 def camera_to_JSON(id, camera : Camera):
