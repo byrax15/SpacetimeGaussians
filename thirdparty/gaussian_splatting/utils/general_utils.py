@@ -14,6 +14,8 @@ import sys
 from datetime import datetime
 import numpy as np
 import random
+from PIL import Image
+from typing import Tuple
 
 def inverse_sigmoid(x):
     return torch.log(x/(1-x))
@@ -49,12 +51,23 @@ def sigmoidv3(x):
 
 
 def PILtoTorch(pil_image, resolution):
-    resized_image_PIL = pil_image.resize(resolution)
-    resized_image = torch.from_numpy(np.array(resized_image_PIL)) / 255.0
-    if len(resized_image.shape) == 3:
-        return resized_image.permute(2, 0, 1)
+    normalized = resize_and_normalize(pil_image, resolution)
+    torch_img    = numpy_to_torch(normalized)
+
+def resize_and_normalize(pil_image: Image.Image, 
+                         resolution: Tuple[int, int]) -> np.ndarray:
+    resized = pil_image.resize(resolution)
+    array = np.array(resized).astype(np.float32) / 255.0
+    return array
+
+def numpy_to_torch(img_array: np.ndarray) -> torch.Tensor:
+    tensor = torch.from_numpy(img_array)
+    if tensor.ndim == 3:
+        # Color image: H×W×C -> C×H×W
+        return tensor.permute(2, 0, 1)
     else:
-        return resized_image.unsqueeze(dim=-1).permute(2, 0, 1)
+        # Grayscale: H×W -> 1×H×W
+        return tensor.unsqueeze(-1).permute(2, 0, 1)
 
 def get_expon_lr_func(
     lr_init, lr_final, lr_delay_steps=0, lr_delay_mult=1.0, max_steps=1000000
