@@ -12,6 +12,10 @@
 import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
+from skimage import img_as_float, filters, color
+from skimage.metrics import structural_similarity
+from skimage.feature import canny
+from typing import Tuple
 from math import exp
 
 def l1_loss(network_output, gt):
@@ -94,3 +98,159 @@ def _ssimmap(img1, img2, window, window_size, channel, size_average=True):
     ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
 
     return ssim_map
+
+
+def ssim_score(img1: np.ndarray,
+               img2: np.ndarray,
+               win_size: int = 11,
+               gaussian_weights: bool = True,
+               sigma: float = 1.5) -> float:
+    """
+    Compute the scalar SSIM index between two images.
+
+    Args:
+        img1, img2: Arrays of shape (H, W) or (H, W, C). dtype uint8 or float.
+        win_size: Sliding window size.
+        gaussian_weights: Whether to weight the window with a Gaussian.
+        sigma: Sigma for the Gaussian window.
+
+    Returns:
+        SSIM index (float in [-1, 1], higher is more similar).
+    """
+    f1 = img_as_float(img1)
+    f2 = img_as_float(img2)
+    multichannel = (f1.ndim == 3)
+
+    score = structural_similarity(
+        f1, f2,
+        win_size=win_size,
+        gaussian_weights=gaussian_weights,
+        sigma=sigma,
+        data_range=1.0,
+        multichannel=multichannel
+    )
+    return score
+
+def ssim_map(img1: np.ndarray,
+             img2: np.ndarray,
+             win_size: int = 11,
+             gaussian_weights: bool = True,
+             sigma: float = 1.5) -> np.ndarray:
+    """
+    Compute the full SSIM map between two images.
+
+    Args:
+        img1, img2: Arrays of shape (H, W) or (H, W, C). dtype uint8 or float.
+        win_size: Sliding window size.
+        gaussian_weights: Whether to weight the window with a Gaussian.
+        sigma: Sigma for the Gaussian window.
+
+    Returns:
+        SSIM map array of same shape as input (or single-channel).
+    """
+    f1 = img_as_float(img1)
+    f2 = img_as_float(img2)
+    multichannel = (f1.ndim == 3)
+
+    _, s_map = structural_similarity(
+        f1, f2,
+        win_size=win_size,
+        gaussian_weights=gaussian_weights,
+        sigma=sigma,
+        data_range=1.0,
+        multichannel=multichannel,
+        full=True
+    )
+    return s_map
+
+def compute_edge_density(img: np.ndarray,
+                         method: str = 'sobel',
+                         sigma: float = 1.0) -> float:
+    """
+    Compute a global edge density of an image in [0, 1].
+
+    Args:
+        img: H×W or H×W×C array.
+        method: 'sobel' or 'canny'.
+        sigma: smoothing for Sobel, ignored by Canny.
+
+    Returns:
+        Fraction of pixels marked as edge.
+    """
+    gray = color.rgb2gray(img) if img.ndim == 3 else img
+    if method == 'canny':
+        edges = canny(gray)
+    else:
+        # Sobel gradient magnitude then threshold at mean
+        grad = filters.sobel(gray, sigma=sigma)
+        edges = grad > grad.mean()
+    return float(edges.mean())
+
+def adaptive_window_size(base_size: int,
+                         edge_density: float,
+                         min_size: int = 3) -> int:
+    """
+    Shrink the window size where edges are dense.
+
+    window_size = max(min_size, int(base_size * (1 - edge_density)))
+
+    Ensures window_size is odd.
+    """
+    size = max(min_size, int(base_size * (1.0 - edge_density)))
+    return size + 1 if size % 2 == 0 else size
+
+def ssim_score_edge_aware(img1: np.ndarray,
+                          img2: np.ndarray,
+                          base_win_size: int = 11,
+                          gaussian_weights: bool = True,
+                          sigma: float = 1.5,
+                          edge_method: str = 'sobel') -> float:
+    """
+    Compute an edge-aware SSIM index:
+      • Detect edges on img1 → edge_density in [0,1]
+      • Adapt window size: smaller windows if many edges
+      • Call structural_similarity with that window
+    """
+    # to [0,1] floats
+    f1 = img_as_float(img1)
+    f2 = img_as_float(img2)
+    # 1) edge density
+    ed = compute_edge_density(f1, method=edge_method, sigma=sigma)
+    # 2) adaptive window size
+    win_size = adaptive_window_size(base_win_size, ed)
+    # 3) SSIM
+    multichannel = (f1.ndim == 3)
+    score = structural_similarity(
+        f1, f2,
+        win_size=win_size,
+        gaussian_weights=gaussian_weights,
+        sigma=sigma,
+        data_range=1.0,
+        multichannel=multichannel
+    )
+    return score
+
+def ssim_map_edge_aware(img1: np.ndarray,
+                        img2: np.ndarray,
+                        base_win_size: int = 11,
+                        gaussian_weights: bool = True,
+                        sigma: float = 1.5,
+                        edge_method: str = 'sobel') -> np.ndarray:
+    """
+    Same as above, but returns the per-pixel SSIM map.
+    """
+    f1 = img_as_float(img1)
+    f2 = img_as_float(img2)
+    ed = compute_edge_density(f1, method=edge_method, sigma=sigma)
+    win_size = adaptive_window_size(base_win_size, ed)
+    multichannel = (f1.ndim == 3)
+    _, s_map = structural_similarity(
+        f1, f2,
+        win_size=win_size,
+        gaussian_weights=gaussian_weights,
+        sigma=sigma,
+        data_range=1.0,
+        multichannel=multichannel,
+        full=True
+    )
+    return s_map

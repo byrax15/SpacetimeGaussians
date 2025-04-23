@@ -235,24 +235,23 @@ def loadCamnogt(args, id, cam_info, resolution_scale):
 
 
 def cameraList_from_camInfosv2(cam_infos, resolution_scale, args, ss=False):
-    camera_list = []
+    if not ss:
+        return [
+            loadCamv2(args, idx, cam, resolution_scale)
+            for idx, cam in enumerate(cam_infos)
+        ]
+        
+    return [
+        (print("id", idx), loadCamv2ss(args, idx, cam, resolution_scale))[1]
+        for idx, cam in enumerate(cam_infos)
+    ]
 
-    if not ss: #
-        for id, c in enumerate(cam_infos):
-            camera_list.append(loadCamv2(args, id, c, resolution_scale))
-    else:
-        for id, c in enumerate(cam_infos):
-            camera_list.append(loadCamv2ss(args, id, c, resolution_scale))
-            print("id", id)
 
-    return camera_list
 def cameraList_from_camInfosv2nogt(cam_infos, resolution_scale, args):
-    camera_list = []
-
-    for id, c in enumerate(cam_infos):
-        camera_list.append(loadCamnogt(args, id, c, resolution_scale))
-
-    return camera_list
+    return [
+        loadCamnogt(args, idx, cam, resolution_scale)
+        for idx, cam in enumerate(cam_infos)
+    ]
 
 def camera_to_JSON(id, camera : Camera):
     Rt = np.zeros((4, 4))

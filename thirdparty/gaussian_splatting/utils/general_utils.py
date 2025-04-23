@@ -14,6 +14,8 @@ import sys
 from datetime import datetime
 import numpy as np
 import random
+from PIL import Image
+from typing import Tuple
 
 def inverse_sigmoid(x):
     return torch.log(x/(1-x))
@@ -35,26 +37,68 @@ def sigmoida(x):
 def inverse_sigmoida(x):
     return torch.log( (x/0.7) /(1-(x/0.7)))
 
-
 def sigmoidc(x):
     return 0.8*torch.sigmoid(x)
+    
 def inverse_sigmoidc(x):
     return torch.log((x/0.8) /(1-(x/0.8)))
 
-
 def inverse_sigmoidv3(x):
     return torch.log( (x/1.4) /(1-(x/1.4)))
+    
 def sigmoidv3(x):
     return 1.4*torch.sigmoid(x) 
 
-
 def PILtoTorch(pil_image, resolution):
-    resized_image_PIL = pil_image.resize(resolution)
-    resized_image = torch.from_numpy(np.array(resized_image_PIL)) / 255.0
-    if len(resized_image.shape) == 3:
-        return resized_image.permute(2, 0, 1)
+    normalized = resize_and_normalize(pil_image, resolution)
+    torch_img    = numpy_to_torch(normalized)
+
+def resize_and_normalize_cuda(pil_image: Image.Image, 
+                              resolution: Tuple[int, int]) -> np.ndarray:
+    """
+    Use OpenCV CUDA to upload the image, resize on GPU, normalize to [0,1],
+    and download back as an H×W or H×W×C numpy array.
+    """
+    # 1. Convert PIL image (RGB) to BGR uint8 numpy
+    img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+    
+    gpu_mat = cv2.cuda_GpuMat()
+    gpu_mat.upload(img)
+    
+    gpu_resized = cv2.cuda.resize(
+        src=gpu_mat,
+        dsize=resolution,
+        interpolation=cv2.INTER_LINEAR
+    )
+
+    gpu_normalized = cv2.cuda.convertTo(
+        src=gpu_resized,
+        rtype=cv2.CV_32F,
+        alpha=1.0 / 255.0,
+        beta=0.0
+    )
+    
+    normalized = gpu_normalized.download()
+    
+    if normalized.ndim == 3:
+        normalized = cv2.cvtColor(normalized, cv2.COLOR_BGR2RGB)
+    
+    return normalized
+
+def resize_and_normalize(pil_image: Image.Image, 
+                         resolution: Tuple[int, int]) -> np.ndarray:
+    resized = pil_image.resize(resolution)
+    array = np.array(resized).astype(np.float32) / 255.0
+    return array
+
+def numpy_to_torch(img_array: np.ndarray) -> torch.Tensor:
+    tensor = torch.from_numpy(img_array)
+    if tensor.ndim == 3:
+        # Color image: H×W×C -> C×H×W
+        return tensor.permute(2, 0, 1)
     else:
-        return resized_image.unsqueeze(dim=-1).permute(2, 0, 1)
+        # Grayscale: H×W -> 1×H×W
+        return tensor.unsqueeze(-1).permute(2, 0, 1)
 
 def get_expon_lr_func(
     lr_init, lr_final, lr_delay_steps=0, lr_delay_mult=1.0, max_steps=1000000
