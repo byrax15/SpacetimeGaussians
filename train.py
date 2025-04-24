@@ -38,7 +38,7 @@ sys.path.append("./thirdparty/gaussian_splatting")
 from thirdparty.gaussian_splatting.helper3dg import getparser, getrenderparts  # NOQA
 from argparse import Namespace  # NOQA
 from thirdparty.gaussian_splatting.scene import Scene  # NOQA
-from helper_train import getrenderpip, getmodel, getloss, controlgaussians, reloadhelper, trbfunction, setgtisint8, getgtisint8  # NOQA
+from helper_train import getloss_v2, getrenderpip, getmodel, getloss, controlgaussians, reloadhelper, trbfunction, setgtisint8, getgtisint8  # NOQA
 from thirdparty.gaussian_splatting.utils.loss_utils import l1_loss, ssim, l2_loss, rel_loss  # NOQA
 
 
@@ -49,7 +49,7 @@ def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration
     if yield_loss:
         loss_history = open(os.path.join(
             args.model_path, "loss_history.csv"), 'w')
-        loss_history.write("iteration loss\n")
+        loss_history.write("loss_name;iteration;loss\n")
 
     first_iter = 0
     render, GRsetting, GRzer = getrenderpip(rdpip)
@@ -92,6 +92,7 @@ def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration
 
     viewpoint_stack = None
     ema_loss_for_log = 0.0
+    ema_losses: dict[str, float] = {}
     # if freeze != 1:
     first_iter = 0
     progress_bar = tqdm(range(first_iter, opt.iterations),
@@ -198,8 +199,9 @@ def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration
                     loss = Ll1
                 else:
                     Ll1 = l1_loss(image, gt_image)
-                    loss = getloss(opt, Ll1, ssim, image,
-                                   gt_image, gaussians, radii)
+                    losses = getloss_v2(opt, Ll1, ssim, image,
+                                        gt_image, gaussians, radii)
+                    loss = sum(losses.values())
 
                 if flagems == 1:
                     if viewpoint_cam.image_name not in lossdiect:
@@ -241,10 +243,15 @@ def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration
 
         with torch.no_grad():
             # Progress bar
+            ema_losses = {k: .4*l.item() + .6 * ema_losses.get(k, 0.)
+                          for k, l in losses.items()}
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
             if iteration % 10 == 0:
                 if yield_loss:
-                    loss_history.write(f"{iteration} {ema_loss_for_log}\n")
+                    loss_history.write(
+                        f"loss;{iteration};{ema_loss_for_log}\n")
+                    for k, v in ema_losses.items():
+                        loss_history.write(f"{k};{iteration};{v}\n")
                 progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}"})
                 progress_bar.update(10)
             if yield_loss and iteration % 100 == 0:
