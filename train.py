@@ -19,10 +19,12 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+import functools
 import os
 from random import randint
 import random
 import sys
+from typing import NamedTuple
 import uuid
 import time
 import json
@@ -32,6 +34,8 @@ import numpy as np
 import torch.nn.functional as F
 import cv2
 from tqdm import tqdm
+from skimage import feature
+from skimage.color import rgb2gray
 
 
 sys.path.append("./thirdparty/gaussian_splatting")
@@ -39,7 +43,38 @@ from thirdparty.gaussian_splatting.helper3dg import getparser, getrenderparts  #
 from argparse import Namespace  # NOQA
 from thirdparty.gaussian_splatting.scene import Scene  # NOQA
 from helper_train import getloss_v2, getrenderpip, getmodel, getloss, controlgaussians, reloadhelper, trbfunction, setgtisint8, getgtisint8  # NOQA
-from thirdparty.gaussian_splatting.utils.loss_utils import l1_loss, ssim, l2_loss, rel_loss  # NOQA
+from thirdparty.gaussian_splatting.utils.loss_utils import l1_loss, ssim as loss_utils_ssim, l2_loss, rel_loss  # NOQA
+
+
+class EdgeBox (NamedTuple):
+    x_min: int
+    x_max: int
+    y_min: int
+    y_max: int
+
+    def area(self):
+        return (self.x_max - self.x_min + 1) * (self.y_max - self.y_min + 1)
+
+    def crop(self, image: torch.Tensor, padding: int):
+        y_min = max(0, self.y_min - padding)
+        y_max = min(image.shape[1], self.y_max + padding)
+        x_min = max(0, self.x_min - padding)
+        x_max = min(image.shape[2], self.x_max + padding)
+        return image[:, self.y_min:self.y_max, self.x_min:self.x_max]
+    
+    def max_window(self, default: int):
+        return max(1,min([default, self.x_max - self.x_min, self.y_max - self.y_min]))
+
+
+def find_colors(gt: torch.Tensor):
+    """
+        gt is a 3D tensor with shape C x H x W
+    """
+    colored_pixels = (gt != 0).any(dim=0)
+    y, x = colored_pixels.nonzero(as_tuple=True)
+    if 0 in x.shape or 0 in y.shape:
+        return EdgeBox(0,0,0,0)
+    return EdgeBox(x.max(),y.max(), x.min(),y.min())
 
 
 def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration=50, rgbfunction="rgbv1", rdpip="v2", yield_loss=True):
@@ -103,6 +138,21 @@ def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration
     flagtwo = 0
     depthdict = {}
 
+    if opt.reg == 100:
+        def ssim(image: torch.Tensor, gt: torch.Tensor, *args, **kwargs):
+            try:
+                edgebox = find_colors(gt)
+                if edgebox.area() == 0:
+                    return torch.tensor(1.0, device=image.device)
+                kwargs['window_size'] = (padding := edgebox.max_window(kwargs.get('window_size', 11)))
+                cropped_image, cropped_gt = (edgebox.crop(i, padding) for i in (image, gt))
+                return loss_utils_ssim(cropped_image, cropped_gt, *args, **kwargs)
+            except Exception as e:
+                print(e)
+                breakpoint()
+    else:
+        ssim = loss_utils_ssim
+
     if opt.batch > 1:
         traincameralist = scene.getTrainCameras().copy()
         traincamdict = {}
@@ -121,7 +171,6 @@ def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration
     lossdiect = {}
     ssimdict = {}
     depthdict = {}
-    # validdepthdict = {}
     emsstartfromiterations = opt.emsstart
 
     with torch.no_grad():
@@ -130,20 +179,10 @@ def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration
         for viewpoint_cam in viewpointset:
             render_pkg = render(viewpoint_cam, gaussians, pipe, background,  override_color=None,
                                 basicfunction=rbfbasefunction, GRsetting=GRsetting, GRzer=GRzer)
-
-            # _, depthH, depthW = render_pkg["depth"].shape
-            # borderH = int(depthH/2)
-            # borderW = int(depthW/2)
-
-            # midh = int(viewpoint_cam.image_height/2)
-            # midw = int(viewpoint_cam.image_width/2)
-
             depth = render_pkg["depth"]
             slectemask = depth != 15.0
             if not slectemask.any():
                 continue
-            # validdepthdict[viewpoint_cam.image_name] = torch.median(
-            #     depth[slectemask]).item()
             depthdict[viewpoint_cam.image_name] = torch.amax(
                 depth[slectemask]).item()
 

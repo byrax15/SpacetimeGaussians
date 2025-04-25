@@ -131,9 +131,9 @@ def getloss(opt, Ll1, ssim, image, gt_image, gaussians, radii) -> torch.Tensor:
 
 
 def getloss_v2(opt, Ll1, ssim, image, gt_image, gaussians, radii) -> dict[str, torch.Tensor]:
-    if opt.reg == 0:  # default, Weighted L1 + DSSIM
+    if opt.reg in [0, 100]:  # default, Weighted L1 + DSSIM
         return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image))}
-    if opt.reg == 1:  # add optical flow loss
+    elif opt.reg == 1:  # add optical flow loss
         return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "opticalflow": opt.regl * torch.sum(gaussians._motion) / gaussians._motion.shape[0]}
     elif opt.reg == 9:  # regulizor on the rotation
         return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "rotation": opt.regl * torch.sum(gaussians._omega[radii > 0]**2)}
@@ -155,6 +155,8 @@ def getloss_v2(opt, Ll1, ssim, image, gt_image, gaussians, radii) -> dict[str, t
         mean = torch.mean(gaussians._xyz, dim=0, keepdim=True)
         varaince = (mean - gaussians._xyz)**2  # / N
         return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "variance": 0.0002 * torch.sum(varaince) / N}
+    else:
+        raise NotImplementedError(f"Loss {opt.reg} not implemented")
 
 
 def freezweights(model, screenlist):

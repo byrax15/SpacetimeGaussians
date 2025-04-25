@@ -40,3 +40,4 @@ getconfig.py
 test.sh
 *.sh
 log/*
+*.cprofile*
