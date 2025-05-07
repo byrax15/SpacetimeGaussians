@@ -182,6 +182,10 @@ class GaussianModel:
             pcd = interpolate_partuse(pcd, 16) 
         else:
             pass 
+        
+        if pcd.points.shape[0] == 0:
+            raise ValueError("No points in the point cloud. Try adding a bogus point to the sparse model's point3d.(bin|txt) file.")
+
         self.spatial_lr_scale = spatial_lr_scale
         fused_point_cloud = torch.tensor(np.asarray(pcd.points)).float().cuda()
         fused_color = torch.tensor(np.asarray(pcd.colors)).float().cuda()
@@ -223,8 +227,6 @@ class GaussianModel:
         
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
         
-
-
         self._trbf_center = nn.Parameter(times.contiguous().requires_grad_(True))
         self._trbf_scale = nn.Parameter(torch.ones((self.get_xyz.shape[0], 1), device="cuda").requires_grad_(True)) 
 
@@ -239,15 +241,9 @@ class GaussianModel:
         nn.init.constant_(self._omega, 0)
         self.rgb_grd = {}
 
-
-
-        self.maxz, self.minz = torch.amax(self._xyz[:,2]), torch.amin(self._xyz[:,2]) 
-        self.maxy, self.miny = torch.amax(self._xyz[:,1]), torch.amin(self._xyz[:,1]) 
-        self.maxx, self.minx = torch.amax(self._xyz[:,0]), torch.amin(self._xyz[:,0]) 
+        (self.minx,self.maxx),(self.miny, self.maxy),(self.minz,self.maxz) = (torch.aminmax(self._xyz[:,i]) for i in range(3))
         self.maxz = min((self.maxz, 200.0)) # some outliers in the n4d datasets.. 
-        
-       
-        
+
 
     def cache_gradient(self):
         self._xyz_grd += self._xyz.grad.clone()

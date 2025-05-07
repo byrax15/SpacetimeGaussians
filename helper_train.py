@@ -131,7 +131,7 @@ def getloss(opt, Ll1, ssim, image, gt_image, gaussians, radii) -> torch.Tensor:
 
 
 def getloss_v2(opt, Ll1, ssim, image, gt_image, gaussians, radii) -> dict[str, torch.Tensor]:
-    if opt.reg in [0, 100]:  # default, Weighted L1 + DSSIM
+    if opt.reg == 0:  # default, Weighted L1 + DSSIM
         return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image))}
     elif opt.reg == 1:  # add optical flow loss
         return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "opticalflow": opt.regl * torch.sum(gaussians._motion) / gaussians._motion.shape[0]}

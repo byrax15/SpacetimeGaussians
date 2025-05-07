@@ -102,10 +102,7 @@ def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration
     scene = Scene(dataset, gaussians, duration=duration, loader=dataset.loader)
 
     currentxyz = gaussians._xyz
-    maxx, maxy, maxz = torch.amax(currentxyz[:, 0]), torch.amax(
-        currentxyz[:, 1]), torch.amax(currentxyz[:, 2])  # z wrong...
-    minx, miny, minz = torch.amin(currentxyz[:, 0]), torch.amin(
-        currentxyz[:, 1]), torch.amin(currentxyz[:, 2])
+    (minx,maxx),(miny, maxy),(minz,maxz) = (torch.aminmax(currentxyz[:,i]) for i in range(3))
 
     if os.path.exists(opt.prevpath):
         print("load from " + opt.prevpath)
