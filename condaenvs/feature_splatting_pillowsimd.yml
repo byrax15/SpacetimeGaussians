@@ -1,5 +1,4 @@
 name: feature_splatting_pillowsimd
-prefix: /home/aq85800/anaconda3/envs/feature_splatting
 channels:
   - pytorch
   - nvidia

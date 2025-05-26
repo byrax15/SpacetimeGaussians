@@ -19,62 +19,22 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-import functools
 import os
 from random import randint
 import random
 import sys
-from typing import NamedTuple
-import uuid
-import time
-import json
 import torch
 import torchvision
-import numpy as np
-import torch.nn.functional as F
-import cv2
+import torchvision
 from tqdm import tqdm
-from skimage import feature
-from skimage.color import rgb2gray
 
 
 sys.path.append("./thirdparty/gaussian_splatting")
 from thirdparty.gaussian_splatting.helper3dg import getparser, getrenderparts  # NOQA
 from argparse import Namespace  # NOQA
 from thirdparty.gaussian_splatting.scene import Scene  # NOQA
-from helper_train import getloss_v2, getrenderpip, getmodel, getloss, controlgaussians, reloadhelper, trbfunction, setgtisint8, getgtisint8  # NOQA
-from thirdparty.gaussian_splatting.utils.loss_utils import l1_loss, ssim as loss_utils_ssim, l2_loss, rel_loss  # NOQA
-
-
-class EdgeBox (NamedTuple):
-    x_min: int
-    x_max: int
-    y_min: int
-    y_max: int
-
-    def area(self):
-        return (self.x_max - self.x_min + 1) * (self.y_max - self.y_min + 1)
-
-    def crop(self, image: torch.Tensor, padding: int):
-        y_min = max(0, self.y_min - padding)
-        y_max = min(image.shape[1], self.y_max + padding)
-        x_min = max(0, self.x_min - padding)
-        x_max = min(image.shape[2], self.x_max + padding)
-        return image[:, self.y_min:self.y_max, self.x_min:self.x_max]
-    
-    def max_window(self, default: int):
-        return max(1,min([default, self.x_max - self.x_min, self.y_max - self.y_min]))
-
-
-def find_colors(gt: torch.Tensor):
-    """
-        gt is a 3D tensor with shape C x H x W
-    """
-    colored_pixels = (gt != 0).any(dim=0)
-    y, x = colored_pixels.nonzero(as_tuple=True)
-    if 0 in x.shape or 0 in y.shape:
-        return EdgeBox(0,0,0,0)
-    return EdgeBox(x.max(),y.max(), x.min(),y.min())
+from helper_train import getloss_v2, getrenderpip, getmodel, controlgaussians, reloadhelper, trbfunction, setgtisint8, getgtisint8  # NOQA
+from thirdparty.gaussian_splatting.utils.loss_utils import l1_loss, ssim, l2_loss, rel_loss  # NOQA
 
 
 def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration=50, rgbfunction="rgbv1", rdpip="v2", yield_loss=True):
@@ -102,7 +62,8 @@ def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration
     scene = Scene(dataset, gaussians, duration=duration, loader=dataset.loader)
 
     currentxyz = gaussians._xyz
-    (minx,maxx),(miny, maxy),(minz,maxz) = (torch.aminmax(currentxyz[:,i]) for i in range(3))
+    (minx, maxx), (miny, maxy), (minz, maxz) = (
+        torch.aminmax(currentxyz[:, i]) for i in range(3))
 
     if os.path.exists(opt.prevpath):
         print("load from " + opt.prevpath)
@@ -134,21 +95,6 @@ def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration
     flag = 0
     flagtwo = 0
     depthdict = {}
-
-    if opt.reg == 100:
-        def ssim(image: torch.Tensor, gt: torch.Tensor, *args, **kwargs):
-            try:
-                edgebox = find_colors(gt)
-                if edgebox.area() == 0:
-                    return torch.tensor(1.0, device=image.device)
-                kwargs['window_size'] = (padding := edgebox.max_window(kwargs.get('window_size', 11)))
-                cropped_image, cropped_gt = (edgebox.crop(i, padding) for i in (image, gt))
-                return loss_utils_ssim(cropped_image, cropped_gt, *args, **kwargs)
-            except Exception as e:
-                print(e)
-                breakpoint()
-    else:
-        ssim = loss_utils_ssim
 
     if opt.batch > 1:
         traincameralist = scene.getTrainCameras().copy()
@@ -227,17 +173,17 @@ def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration
                     mask = mask.float()
                     image = image * (1 - mask) + gt_image * (mask)
 
-                if opt.reg == 2:
-                    Ll1 = l2_loss(image, gt_image)
-                    loss = Ll1
-                elif opt.reg == 3:
-                    Ll1 = rel_loss(image, gt_image)
-                    loss = Ll1
-                else:
-                    Ll1 = l1_loss(image, gt_image)
-                    losses = getloss_v2(opt, Ll1, ssim, image,
-                                        gt_image, gaussians, radii)
-                    loss = sum(losses.values())
+                match opt.reg:
+                    case 2:
+                        Ll1 = l2_loss(image, gt_image)
+                        loss = Ll1
+                    case 3:
+                        Ll1 = rel_loss(image, gt_image)
+                        loss = Ll1
+                    case _:
+                        Ll1 = l1_loss(image, gt_image)
+                        losses = getloss_v2(opt, Ll1, ssim, image, gt_image, gaussians, radii)
+                        loss = sum(losses.values())
 
                 if flagems == 1:
                     if viewpoint_cam.image_name not in lossdiect:

@@ -1,4 +1,4 @@
-
+#!python
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
 import shutil
@@ -36,6 +36,7 @@ class ArgumentParser(Tap):
     parallel: bool = False
     startframe: int = 0
     endframe: int
+
 
     def configure(self):
         self.add_subparser("share_full_prior", RandomPointsArgs)

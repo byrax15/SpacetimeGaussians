@@ -36,7 +36,8 @@
 # derivative works in any form.
 #
 
-from typing import Optional
+from typing import Callable, Optional
+import skimage
 import torch
 import numpy as np
 import torch
@@ -45,6 +46,9 @@ import os
 import json
 import cv2
 import os
+
+import torchvision
+import torchvision.transforms.functional
 from script.pre_immersive_distorted import SCALEDICT
 
 
@@ -131,32 +135,39 @@ def getloss(opt, Ll1, ssim, image, gt_image, gaussians, radii) -> torch.Tensor:
 
 
 def getloss_v2(opt, Ll1, ssim, image, gt_image, gaussians, radii) -> dict[str, torch.Tensor]:
-    if opt.reg == 0:  # default, Weighted L1 + DSSIM
-        return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image))}
-    elif opt.reg == 1:  # add optical flow loss
-        return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "opticalflow": opt.regl * torch.sum(gaussians._motion) / gaussians._motion.shape[0]}
-    elif opt.reg == 9:  # regulizor on the rotation
-        return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "rotation": opt.regl * torch.sum(gaussians._omega[radii > 0]**2)}
-    elif opt.reg == 10:  # regulizor on the rotation
-        return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "motion": opt.regl * torch.sum(gaussians._motion[radii > 0]**2)}
-    elif opt.reg == 4:  # scaling regulizor
-        return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "scaling": opt.regl * torch.sum(gaussians.get_scaling) / gaussians._motion.shape[0]}
-    elif opt.reg == 5:  # LL1 forward
-        return {"ll1": Ll1}
-    elif opt.reg == 6:  # TODO: identify paper ablation
-        ratio = torch.clamp(torch.mean(gt_image) - 0.5 +
-                            opt.lambda_dssim, 0.0, 1.0)
-        return {"ll1": (1.0 - ratio) * Ll1, "ssim": ratio * (1.0 - ssim(image, gt_image))}
-    elif opt.reg == 7:  # TODO: identify paper ablation
-        Ll1 = Ll1 / (torch.mean(gt_image) * 2.0)  # normalize L1 loss
-        return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image))}
-    elif opt.reg == 8:  # TODO: identify paper ablation
-        N = gaussians._xyz.shape[0]
-        mean = torch.mean(gaussians._xyz, dim=0, keepdim=True)
-        varaince = (mean - gaussians._xyz)**2  # / N
-        return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "variance": 0.0002 * torch.sum(varaince) / N}
-    else:
-        raise NotImplementedError(f"Loss {opt.reg} not implemented")
+    match opt.reg:
+        case 0:  # default, Weighted L1 + DSSIM
+            return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image))}
+        case 1:  # add optical flow loss
+            return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "opticalflow": opt.regl * torch.sum(gaussians._motion) / gaussians._motion.shape[0]}
+        case 9:  # regulizor on the rotation
+            return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "rotation": opt.regl * torch.sum(gaussians._omega[radii > 0]**2)}
+        case 10:  # regulizor on the rotation
+            return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "motion": opt.regl * torch.sum(gaussians._motion[radii > 0]**2)}
+        case 4:  # scaling regulizor
+            return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "scaling": opt.regl * torch.sum(gaussians.get_scaling) / gaussians._motion.shape[0]}
+        case 5:  # LL1 forward
+            return {"ll1": Ll1}
+        case 6:  # TODO: identify paper ablation
+            ratio = torch.clamp(torch.mean(gt_image) - 0.5 +
+                                opt.lambda_dssim, 0.0, 1.0)
+            return {"ll1": (1.0 - ratio) * Ll1, "ssim": ratio * (1.0 - ssim(image, gt_image))}
+        case 7:  # normalize L1 loss
+            Ll1 = Ll1 / (torch.mean(gt_image) * 2.0)  
+            return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image))}
+        case 8:  # TODO: identify paper ablation
+            N = gaussians._xyz.shape[0]
+            mean = torch.mean(gaussians._xyz, dim=0, keepdim=True)
+            varaince = (mean - gaussians._xyz)**2  # / N
+            return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "variance": 0.0002 * torch.sum(varaince) / N}
+        case 100:
+            return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "edgessim": opt.regl*(1.-EdgeSsims.torch(image, gt_image, ssim))}
+        case 101:
+            return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "edgessim": opt.regl*(1.-EdgeSsims.cpu(image, gt_image))}
+        case 110:
+            return {"edgessim": 1.-EdgeSsims.torch(image, gt_image, ssim)}
+
+    raise NotImplementedError(f"Loss {opt.reg} not implemented")
 
 
 def freezweights(model, screenlist):
@@ -416,3 +427,30 @@ def getgtisint8():
         return bool(int(os.getenv('gtisint8')))
     except:
         return False
+
+
+class EdgeSsims:
+    @staticmethod
+    def cpu(render: torch.Tensor, gt: torch.Tensor, /):
+        render_edges, gt_edges = [
+            skimage.filters.roberts(
+                skimage.color.rgb2gray(im.cpu().detach().numpy(), channel_axis=0))
+            for im in [render, gt]]
+        return torch.tensor(skimage.metrics.structural_similarity(
+            render_edges, gt_edges, channel_axis=0,
+            data_range=np.max(np.fmax(render_edges, gt_edges)) - np.min(np.fmin(render_edges, gt_edges))))
+
+    @staticmethod
+    def torch(render: torch.Tensor, gt: torch.Tensor, ssim: Callable[[torch.Tensor, torch.Tensor], torch.Tensor], /):
+        import torch.nn.functional as F
+        roberts_kx = torch.tensor(
+            [[1, 0], [0, -1]], device=render.device, dtype=render.dtype).unsqueeze(0).unsqueeze(0)
+        roberts_ky = torch.tensor(
+            [[0, 1], [-1, 0]], device=render.device, dtype=render.dtype).unsqueeze(0).unsqueeze(0)
+        g_render, g_gt = [torchvision.transforms.functional.rgb_to_grayscale(i) for i in [
+            render, gt]]
+        edges_render = torch.sqrt(
+            F.conv2d(g_render, roberts_kx)**2 + F.conv2d(g_render, roberts_ky)**2 + 1e-12)
+        edges_gt = torch.sqrt(F.conv2d(g_gt, roberts_kx) **
+                              2 + F.conv2d(g_gt, roberts_ky)**2 + 1e-12)
+        return ssim(edges_render, edges_gt)
