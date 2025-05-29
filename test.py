@@ -31,12 +31,16 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+from collections import namedtuple
+from dataclasses import dataclass
 import json
+from typing import Callable
 import numpy as np
 import time
 from thirdparty.gaussian_splatting.arguments import ModelParams, PipelineParams
 from skimage.metrics import structural_similarity as sk_ssim
 from thirdparty.gaussian_splatting.helper3dg import gettestparse
+from thirdparty.gaussian_splatting.scene.cameras import Camera
 from thirdparty.gaussian_splatting.utils.image_utils import psnr
 from thirdparty.gaussian_splatting.utils.loss_utils import ssim
 from helper_train import getrenderpip, getmodel, trbfunction
@@ -58,7 +62,33 @@ warnings.filterwarnings("ignore")
 # modified from https://github.com/graphdeco-inria/gaussian-splatting/blob/main/render.py and https://github.com/graphdeco-inria/gaussian-splatting/blob/main/metrics.py
 
 
-def render_set(model_path, name, iteration, views, gaussians, pipeline, background, rbfbasefunction, rdpip):
+@dataclass
+class PathPair:
+    stem: str
+    full: str
+
+
+class SavePathTemplate:
+    def __init__(self, duration, by_image_name_and_timestamp: bool):
+        self.duration = duration
+        self.__call__ = self._by_uid if not by_image_name_and_timestamp else self._by_image_name_and_timestamp
+
+    def _by_image_name_and_timestamp(self, parent: str, view: Camera):
+        stem = os.path.join(
+            parent, f"{view.image_name}_{int(view.timestamp * self.duration):03d}.png")
+        return PathPair(stem=stem, full=os.path.join(parent, stem))
+
+    def _by_uid(self, parent: str, view: Camera):
+        stem = f"{view.uid:05d}.png"
+        return PathPair(stem=stem, full=os.path.join(parent, stem))
+
+    def makedirs(self, parent: str, view: Camera):
+        paths = self.__call__(parent, view)
+        os.makedirs(os.path.dirname(paths.full), exist_ok=True)
+        return paths
+
+
+def render_set(model_path, name, iteration, views, gaussians, pipeline, background, rbfbasefunction, rdpip, save_path_template: SavePathTemplate):
     render, GRsetting, GRzer = getrenderpip(rdpip)
     render_path = os.path.join(
         model_path, name, "ours_{}".format(iteration), "renders")
@@ -118,7 +148,6 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
         render, GRsetting, GRzer = getrenderpip("test_ours_fullss_fused")
     elif rdpip == "train_ours_litess":
         render, GRsetting, GRzer = getrenderpip("test_ours_litess")
-
     else:
         render, GRsetting, GRzer = getrenderpip(rdpip)
 
@@ -143,11 +172,11 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
                          channel_axis=2, data_range=1.)
         ssimsv2.append(ssimv2)
 
-        torchvision.utils.save_image(rendering, os.path.join(
-            render_path, '{0:05d}'.format(idx) + ".png"))
-        torchvision.utils.save_image(gt, os.path.join(
-            gts_path, '{0:05d}'.format(idx) + ".png"))
-        image_names.append('{0:05d}'.format(idx) + ".png")
+        render_paths = save_path_template.makedirs(render_path, view)
+        gts_paths = save_path_template.makedirs(gts_path, view)
+        torchvision.utils.save_image(rendering, render_paths.full)
+        torchvision.utils.save_image(gt, gts_paths.full)
+        image_names.append(render_paths.stem)
 
     for idx, view in enumerate(tqdm(views, desc="release gt images cuda memory for timing")):
         view.original_image = None  # .detach()
@@ -186,7 +215,7 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
 
 
 # render free view
-def render_setnogt(model_path, name, iteration, views, gaussians, pipeline, background, rbfbasefunction, rdpip):
+def render_setnogt(model_path, name, iteration, views, gaussians, pipeline, background, rbfbasefunction, rdpip, save_path_template: SavePathTemplate):
     render, GRsetting, GRzer = getrenderpip(rdpip)
     render_path = os.path.join(
         model_path, name, "ours_{}".format(iteration), "renders")
@@ -197,15 +226,15 @@ def render_setnogt(model_path, name, iteration, views, gaussians, pipeline, back
         gaussians.rgbdecoder.eval()
 
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
-
         rendering = render(view, gaussians, pipeline, background, scaling_modifier=1.0,
                            basicfunction=rbfbasefunction,  GRsetting=GRsetting, GRzer=GRzer)["render"]  # C x H x W
+        render_paths = save_path_template.makedirs(render_path, view)
+        torchvision.utils.save_image(
+            rendering, render_paths.full)
 
-        torchvision.utils.save_image(rendering, os.path.join(
-            render_path, '{0:05d}'.format(idx) + ".png"))
 
-
-def run_test(dataset: ModelParams, iteration: int, pipeline: PipelineParams, skip_train: bool, skip_test: bool, multiview: bool, duration: int, rgbfunction="rgbv1", rdpip="v2", loader="colmap"):
+def run_test(dataset: ModelParams, pipeline: PipelineParams, test_iteration: int, skip_train: bool, skip_test: bool, multiview: bool, duration: int,
+             rgbfunction="rgbv1", rdpip="v2", loader="colmap", cameras_validate_all=False, *_args, **_kwargs):
 
     with torch.no_grad():
         print("use model {}".format(dataset.model))
@@ -214,7 +243,7 @@ def run_test(dataset: ModelParams, iteration: int, pipeline: PipelineParams, ski
 
         gaussians = GaussianModel(dataset.sh_degree, rgbfunction)
 
-        scene = Scene(dataset, gaussians, load_iteration=iteration,
+        scene = Scene(dataset, gaussians, load_iteration=test_iteration,
                       shuffle=False, multiview=multiview, duration=duration, loader=loader)
         rbfbasefunction = trbfunction
         numchannels = 9
@@ -226,16 +255,31 @@ def run_test(dataset: ModelParams, iteration: int, pipeline: PipelineParams, ski
             H, W = cameraslit[0].image_height, cameraslit[0].image_width
             gaussians.ts = torch.ones(1, 1, H, W).cuda()
 
-        if not skip_test and not multiview:
-            render_set(dataset.model_path, "test", scene.loaded_iter, scene.getTestCameras(
-            ), gaussians, pipeline, background, rbfbasefunction, rdpip)
+        if skip_test:
+            print("Skipping test rendering as per user request.")
+            return
+
+        if cameras_validate_all:
+            views = list(scene.getAllCameras())
+            save_path_template = SavePathTemplate(
+                duration=duration, by_image_name_and_timestamp=True)
+            name_suffix = "_validate_all"
+        else:
+            views = list(scene.getTestCameras())
+            save_path_template = SavePathTemplate(
+                duration=duration, by_image_name_and_timestamp=False)
+            name_suffix = ""
+
         if multiview:
-            render_setnogt(dataset.model_path, "mv", scene.loaded_iter, scene.getTestCameras(
-            ), gaussians, pipeline, background, rbfbasefunction, rdpip)
+            render_setnogt(
+                dataset.model_path, f"mv{name_suffix}", scene.loaded_iter,
+                views, gaussians, pipeline, background, rbfbasefunction, rdpip, save_path_template)
+        else:
+            render_set(
+                dataset.model_path, f"test{name_suffix}", scene.loaded_iter,
+                views, gaussians, pipeline, background, rbfbasefunction, rdpip, save_path_template)
 
 
 if __name__ == "__main__":
-
-    args, model_extract, pp_extract, multiview = gettestparse()
-    run_test(model_extract, args.test_iteration, pp_extract, args.skip_train, args.skip_test,
-             multiview, args.duration,  rgbfunction=args.rgbfunction, rdpip=args.rdpip, loader=args.valloader)
+    args, model_extract, pp_extract, _ = gettestparse()
+    run_test(dataset=model_extract, pipeline=pp_extract, **vars(args))

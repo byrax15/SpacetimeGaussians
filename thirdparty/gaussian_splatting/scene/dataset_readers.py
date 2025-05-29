@@ -50,8 +50,8 @@ class CameraInfo(NamedTuple):
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
-    train_cameras: list
-    test_cameras: list
+    train_cameras: list[CameraInfo]
+    test_cameras: list[CameraInfo]
     nerf_normalization: dict
     ply_path: str
 

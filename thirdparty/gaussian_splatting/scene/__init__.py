@@ -9,6 +9,7 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import itertools
 import os
 import random
 import json
@@ -106,7 +107,6 @@ class Scene:
             elif loader in ["immersivess", "immersivevalidss"]:
                 self.test_cameras[resolution_scale] = cameraList_from_camInfosv2(scene_info.test_cameras, resolution_scale, args, ss=True)
             elif loader in ["colmapmv"]:                 # only for multi view
-
                 self.test_cameras[resolution_scale] = cameraList_from_camInfosv2nogt(scene_info.test_cameras, resolution_scale, args)
 
 
@@ -142,7 +142,6 @@ class Scene:
             for cam in self.test_cameras[resolution_scale]:
                 cam.fisheyemapper = self.fisheyemapper[cam.image_name]
 
-       
         if self.loaded_iter :
             self.gaussians.load_ply(os.path.join(self.model_path,
                                                            "point_cloud",
@@ -167,4 +166,7 @@ class Scene:
 
     def getTestCameras(self, scale=1.0):
         return self.test_cameras[scale]
+    
+    def getAllCameras(self, scale=1.0):
+        return itertools.chain(self.train_cameras[scale], self.test_cameras[scale])
  

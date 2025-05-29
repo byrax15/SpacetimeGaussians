@@ -9,6 +9,8 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 import os
+from pathlib import Path
+from typing import Optional
 import torch
 from random import randint
 import random
@@ -99,22 +101,25 @@ def gettestparse():
     parser.add_argument("--test_iteration", default=-1, type=int)
     parser.add_argument("--skip_train", action="store_true")
     parser.add_argument("--skip_test", action="store_true")
-    parser.add_argument("--multiview", action="store_true")
+    parser.add_argument("--multiview", action="store_true",
+                        help="Skip metric evaluation. Useful for multiview datasets.")
     parser.add_argument("--duration", default=50, type=int)
     parser.add_argument("--rgbfunction", type=str, default="rgbv1")
     parser.add_argument("--rdpip", type=str, default="v3")
     parser.add_argument("--valloader", type=str, default="colmap")
     parser.add_argument("--configpath", type=str, default="1")
+    parser.add_argument("--cameras_validate_all", action="store_true",
+                        help="Render all cameras in the colmap model, not only the training cameras.")
     parser.add_argument("-oc", "--override_config",
-                        nargs='*', type=lambda s: s.split("="), default=[])
-
+                        nargs='*', type=lambda s: s.split("="), default=[],
+                        help="Override config parameters specified in the config file. Format: -oc key1=value1 key2=value2 ...")
     parser.add_argument("--quiet", action="store_true")
     args = get_combined_args(parser)
     print("Rendering " + args.model_path)
     # configpath
     safe_state(args.quiet)
 
-    multiview = True if args.valloader.endswith("mv") else False
+    args.multiview |= args.valloader.endswith("mv")
 
     if os.path.exists(args.configpath) and args.configpath != "None":
         print("overload config from " + args.configpath)
@@ -128,12 +133,23 @@ def gettestparse():
                 print("failed set config: " + k)
         print("finish load config from " + args.configpath)
 
+    if hasattr(parser, "_actions"):
+        def type_func(k, v):  # type: ignore
+            typef = next(
+                (a.type for a in parser._actions if a.dest == k), None)
+            try:
+                return typef(v)  # type: ignore
+            except:
+                return v
+    else:
+        def type_func(k, v): return v
+
     for k, v in args.override_config:
-        setattr(args, k, v)
+        setattr(args, k, type_func(k, v))
 
     print("args: " + str(args))
 
-    return args, model.extract(args), pipeline.extract(args), multiview
+    return args, model.extract(args), pipeline.extract(args), args.multiview
 
 
 def getcolmapsinglen3d(folder, offset, single_camera=False):
