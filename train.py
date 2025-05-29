@@ -19,6 +19,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+import colorsys
 import os
 from random import randint
 import random
@@ -37,7 +38,7 @@ from helper_train import getloss_v2, getrenderpip, getmodel, controlgaussians, r
 from thirdparty.gaussian_splatting.utils.loss_utils import l1_loss, ssim, l2_loss, rel_loss  # NOQA
 
 
-def train(dataset, opt, pipe, save_iterations, debug_from, densify=0, duration=50, rgbfunction="rgbv1", rdpip="v2", yield_loss=True, *_args, **_kwargs):
+def train(dataset, opt, pipe, save_iterations, debug_from, densify=0, duration=50, rgbfunction="rgbv1", rdpip="v2", yield_loss=True, background_color_rotate_frequency=None, *_args, **_kwargs):
     with open(os.path.join(args.model_path, "cfg_args"), 'w') as cfg_log_f:
         cfg_log_f.write(str(Namespace(**vars(args))))
 
@@ -144,6 +145,12 @@ def train(dataset, opt, pipe, save_iterations, debug_from, densify=0, duration=5
 
         iter_start.record()
         gaussians.update_learning_rate(iteration)
+
+        if background_color_rotate_frequency is not None and iteration % opt.background_color_rotate_frequency == 0:
+            background = torch.tensor(
+                colorsys.hls_to_rgb(random.uniform(0, 1), 1, 1),
+                dtype=background.dtype,
+                device=background.device)
 
         if (iteration - 1) == debug_from:
             pipe.debug = True

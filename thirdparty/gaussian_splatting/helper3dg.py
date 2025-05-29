@@ -44,7 +44,8 @@ def getparser():
     parser.add_argument("--save_iterations", nargs="+",
                         type=int, default=[7_000, 10000, 12000, 25_000, 30_000])
     parser.add_argument("--test_iterations", default=-1, type=int)
-
+    parser.add_argument("--background-color-rotate-frequency", type=int, default=None,
+                        help='If set, the background color will be randomly re-sampled along the hsl(h, 1, 1) spectrum every N iterations. This option shadows --white_background if specified.')
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations",
                         nargs="+", type=int, default=[])
@@ -57,7 +58,8 @@ def getparser():
     parser.add_argument("--rgbfunction", type=str, default="rgbv1")
     parser.add_argument("--rdpip", type=str, default="v2")
     parser.add_argument("--configpath", type=str, default="None")
-    parser.add_argument("--yield-loss", "--yield_loss", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--yield-loss", "--yield_loss",
+                        action=argparse.BooleanOptionalAction, default=True)
 
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
