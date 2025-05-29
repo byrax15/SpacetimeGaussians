@@ -27,17 +27,17 @@ import torch
 import torchvision
 import torchvision
 from tqdm import tqdm
+from argparse import Namespace  # NOQA
 
 
 sys.path.append("./thirdparty/gaussian_splatting")
 from thirdparty.gaussian_splatting.helper3dg import getparser, getrenderparts  # NOQA
-from argparse import Namespace  # NOQA
 from thirdparty.gaussian_splatting.scene import Scene  # NOQA
 from helper_train import getloss_v2, getrenderpip, getmodel, controlgaussians, reloadhelper, trbfunction, setgtisint8, getgtisint8  # NOQA
 from thirdparty.gaussian_splatting.utils.loss_utils import l1_loss, ssim, l2_loss, rel_loss  # NOQA
 
 
-def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration=50, rgbfunction="rgbv1", rdpip="v2", yield_loss=True):
+def train(dataset, opt, pipe, save_iterations, debug_from, densify=0, duration=50, rgbfunction="rgbv1", rdpip="v2", yield_loss=True, *_args, **_kwargs):
     with open(os.path.join(args.model_path, "cfg_args"), 'w') as cfg_log_f:
         cfg_log_f.write(str(Namespace(**vars(args))))
 
@@ -182,7 +182,8 @@ def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration
                         loss = Ll1
                     case _:
                         Ll1 = l1_loss(image, gt_image)
-                        losses = getloss_v2(opt, Ll1, ssim, image, gt_image, gaussians, radii)
+                        losses = getloss_v2(
+                            opt, Ll1, ssim, image, gt_image, gaussians, radii)
                         loss = sum(losses.values())
 
                 if flagems == 1:
@@ -241,7 +242,7 @@ def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration
             if iteration == opt.iterations:
                 progress_bar.close()
 
-            if (iteration in saving_iterations):
+            if (iteration in save_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
 
@@ -419,9 +420,7 @@ def train(dataset, opt, pipe, saving_iterations, debug_from, densify=0, duration
 if __name__ == "__main__":
     args, lp_extract, op_extract, pp_extract = getparser()
     setgtisint8(op_extract.gtisint8)
-
-    train(lp_extract, op_extract, pp_extract, args.save_iterations, args.debug_from,
-          densify=args.densify, duration=args.duration, rgbfunction=args.rgbfunction, rdpip=args.rdpip, yield_loss=not args.no_yield_loss,)
+    train(lp_extract, op_extract, pp_extract, **vars(args))
 
     # All done
     print("\nTraining complete.")

@@ -8,6 +8,7 @@
 #
 # For inquiries contact  george.drettakis@inria.fr
 #
+import argparse
 import os
 from pathlib import Path
 from typing import Optional
@@ -56,7 +57,7 @@ def getparser():
     parser.add_argument("--rgbfunction", type=str, default="rgbv1")
     parser.add_argument("--rdpip", type=str, default="v2")
     parser.add_argument("--configpath", type=str, default="None")
-    parser.add_argument("--no_yield_loss", action="store_true")
+    parser.add_argument("--yield-loss", "--yield_loss", action=argparse.BooleanOptionalAction, default=True)
 
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
