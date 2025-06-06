@@ -1,7 +1,9 @@
 #!python
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
+import itertools
 import shutil
+import subprocess
 import time
 from typing import Literal, NamedTuple, Optional, Tuple
 from tap import Tap, tapify
@@ -9,23 +11,27 @@ from pathlib import Path
 import re
 import os
 
+
 def average(self):
     return (self.min + self.max) / 2
+
 
 def standard_deviation(self):
     return (self.max - self.min) / 4
 
+
 class RandomPointsArgs(Tap):
     """Skip COLMAP feature extraction and matching, and use a provided sparse model for all frames."""
-    mode = "share_full_prior" # DO NOT USE, reserved for subparser disambiguation
-    gen_random_points: int = 0 # if >0, overrides points3D.txt with points sampled from a normal distribution, else use the file as-is
-    min: float = -10. 
+    mode = "share_full_prior"  # DO NOT USE, reserved for subparser disambiguation
+    # if >0, overrides points3D.txt with points sampled from a normal distribution, else use the file as-is
+    gen_random_points: int = 0
+    min: float = -10.
     max: float = 10.
     color: Tuple[int, ...] = (200, 200, 200)
 
 
 class ArgumentParser(Tap):
-    mode = "default" # DO NOT USE, reserved for subparser disambiguation
+    mode = "default"  # DO NOT USE, reserved for subparser disambiguation
     videosdir: Path
     prior_data_fmt: str = "txt"
     imageext: str = "png"
@@ -36,7 +42,6 @@ class ArgumentParser(Tap):
     parallel: bool = False
     startframe: int = 0
     endframe: int
-
 
     def configure(self):
         self.add_subparser("share_full_prior", RandomPointsArgs)
@@ -89,12 +94,10 @@ for cam in frames_dir.glob("cam*"):
         link_path = colmap_input_image_path(
             point_dir, frame_num, cam_num, args.imageext)
         if args.dryrun:
-            print(f"'{link_path}'.symlink_to('{frame.absolute()}')")
+            print(f'ln -s -r {frame} {link_path}')
         else:
-            try:
-                link_path.symlink_to(frame.absolute())
-            except FileExistsError:
-                pass
+            link_path.symlink_to(os.path.relpath(
+                frame, link_path.parent), False)
 
 if args.mode == "share_full_prior":
     args: RandomPointsArgs = args
@@ -108,15 +111,17 @@ if args.mode == "share_full_prior":
                     average(args), standard_deviation(args), 3)
                 points3d.write(
                     f"{i} {x} {y} {z} {r} {g} {b} 0 0 0 1 1 2 2\n")
-    for bin in prior_data.prior.glob("*.bin"):
+    for bin in itertools.chain(prior_data.prior.glob("*.bin"), prior_data.prior.glob("*.ply")):
         bin.unlink()
     os.system(
         f"colmap model_converter --output_type BIN --output_path {prior_data.prior} --input_path {prior_data.prior}")
     for dest in point_dir.glob("colmap_*"):
-        try: 
+        try:
             (dest/"sparse").mkdir(parents=True, exist_ok=True)
-            (dest/"sparse"/"0").symlink_to(prior_data.prior, True)
-            (dest/"images").symlink_to(dest/"input", True)
+            (dest/"sparse"/"0").symlink_to(
+                os.path.relpath(prior_data.prior, dest/"sparse/0/.."), True)
+            (dest/"images").symlink_to(
+                os.path.relpath(dest/"input", dest/'images/..'), True)
         except FileExistsError:
             pass
     exit(0)
@@ -131,11 +136,10 @@ class UndistortedSparsePath:
 class ColmapExecutor:
     def __init__(self, point_dir: Path, frame_num: int, no_single_camera: bool, camera_model: str, dryrun: bool, mapper_ba_tolerance: float):
         self.frame_dir = point_dir / f"colmap_{frame_num}"
+        self.undistorted_sparse_path = self.frame_dir / "sparse" / "0"
         self.database_path = self.frame_dir / "distorted" / "database.db"
         self.input_path = self.frame_dir / "input"
         self.sparse_path = self.frame_dir / "distorted" / "sparse" / "0"
-        self.undistorted_sparse_path = UndistortedSparsePath(
-            self.frame_dir/"sparse", self.frame_dir/"sparse"/"0")
         self.dryrun = dryrun
         self.commands = [
             f"""colmap feature_extractor
@@ -160,6 +164,8 @@ class ColmapExecutor:
 --output_path {self.frame_dir}
 --output_type COLMAP
             """,
+            f"""mkdir -p {self.frame_dir/'sparse/0'}""",
+            f"""mv {self.frame_dir/'sparse/*'} {self.frame_dir/'sparse/0/'}/"""
         ]
 
     def __call__(self):
@@ -173,10 +179,6 @@ class ColmapExecutor:
                 if code != 0:
                     raise Exception(
                         f"Command failed with code {code}: {command}")
-
-        if not self.dryrun:
-            self.undistorted_sparse_path.dst.symlink_to(
-                self.undistorted_sparse_path.src)
 
 
 tasks = [ColmapExecutor(point_dir, f, args.no_single_camera, args.camera_model, args.dryrun, args.mapper_ba_tolerance)
