@@ -130,12 +130,14 @@ def getmodel(model="oursfull"):
 
 
 def getloss(opt, Ll1, ssim, image, gt_image, gaussians, radii) -> torch.Tensor:
-    return sum(getloss_v2(
-        opt, Ll1, ssim, image, gt_image, gaussians, radii).values())
+    # forward args to getloss_v2, then sum the tensors
+    losses = getloss_v2(opt, Ll1, ssim, image, gt_image, gaussians, radii)
+    return torch.stack(list(losses.values())).sum(dim=0)
 
 
 def getloss_v2(opt, Ll1, ssim, image, gt_image, gaussians, radii) -> dict[str, torch.Tensor]:
     match opt.reg:
+        # STG Ref impl losses
         case 0:  # default, Weighted L1 + DSSIM
             return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image))}
         case 1:  # add optical flow loss
@@ -153,20 +155,32 @@ def getloss_v2(opt, Ll1, ssim, image, gt_image, gaussians, radii) -> dict[str, t
                                 opt.lambda_dssim, 0.0, 1.0)
             return {"ll1": (1.0 - ratio) * Ll1, "ssim": ratio * (1.0 - ssim(image, gt_image))}
         case 7:  # normalize L1 loss
-            Ll1 = Ll1 / (torch.mean(gt_image) * 2.0)  
+            Ll1 = Ll1 / (torch.mean(gt_image) * 2.0)
             return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image))}
         case 8:  # TODO: identify paper ablation
             N = gaussians._xyz.shape[0]
             mean = torch.mean(gaussians._xyz, dim=0, keepdim=True)
             varaince = (mean - gaussians._xyz)**2  # / N
             return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "variance": 0.0002 * torch.sum(varaince) / N}
+        # Edge detection losses
         case 100:
             return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "edgessim": opt.regl*(1.-EdgeSsims.torch(image, gt_image, ssim))}
         case 101:
             return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "edgessim": opt.regl*(1.-EdgeSsims.cpu(image, gt_image))}
         case 110:
             return {"edgessim": 1.-EdgeSsims.torch(image, gt_image, ssim)}
-
+        # Isotropic Gaussian losses
+        case 120:  # anisotropy**2
+            scales_mean: torch.Tensor = \
+                gaussians.get_scaling.mean(1, keepdim=True)
+            scales_dist_to_mean = (gaussians.get_scaling - scales_mean)**2
+            return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "isotropic**2": opt.regl * scales_dist_to_mean.mean()}
+        case 121:  # abs(anisotropy)
+            scales_mean: torch.Tensor = \
+                gaussians.get_scaling.mean(1, keepdim=True)
+            scales_dist_to_mean = torch.abs(
+                gaussians.get_scaling - scales_mean)
+            return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "isotropic**2": opt.regl * scales_dist_to_mean.mean()}
     raise NotImplementedError(f"Loss {opt.reg} not implemented")
 
 
