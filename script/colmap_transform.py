@@ -146,7 +146,9 @@ class Print:
 
 
 @dataclass
-class Multiply:
+class GenUniform:
+    """Multiply the points in the COLMAP sparse model."""
+
     n_points: int
     colors:  list[tuple[int, int, int]]  # colors to use for the points
     color_weigths: list[float] = field(default_factory=list)
@@ -220,7 +222,7 @@ class Multiply:
 if __name__ == "__main__":
     import tyro
 
-    def main(sparse_model: pathlib.Path, call: Union[Print, Multiply]):
+    def main(sparse_model: pathlib.Path, call: Union[Print, GenUniform]):
         call.call(ColmapSparseModel(sparse_model), sparse_model)
 
     tyro.cli(

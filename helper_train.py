@@ -180,7 +180,12 @@ def getloss_v2(opt, Ll1, ssim, image, gt_image, gaussians, radii) -> dict[str, t
                 gaussians.get_scaling.mean(1, keepdim=True)
             scales_dist_to_mean = torch.abs(
                 gaussians.get_scaling - scales_mean)
-            return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "isotropic**2": opt.regl * scales_dist_to_mean.mean()}
+            return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "abs(isotropic)": opt.regl * scales_dist_to_mean.mean()}
+        case 122:  # abs(scale_max/scale_min-1)
+            maxs = torch.max(gaussians.get_scaling, dim=1).values
+            mins = torch.min(gaussians.get_scaling, dim=1).values
+            elongation = torch.abs(maxs / mins - 1.0)
+            return {"ll1": (1.0 - opt.lambda_dssim) * Ll1, "ssim": opt.lambda_dssim * (1.0 - ssim(image, gt_image)), "abs(scale_max/scale_min-1)": opt.regl * elongation.mean()}
     raise NotImplementedError(f"Loss {opt.reg} not implemented")
 
 

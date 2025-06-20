@@ -52,6 +52,7 @@ class TrainBatch(tap.Tap):
     iter_parameters: Callable[[Iterable], Iterable]
     config_base: Path = Path("configs/techni_lite/noprior48.json")
     dryrun: bool = False
+    profile: bool = False
     _expanded_data: list[Path] = []
     """Expanded DataNames, populated after processing args"""
 
@@ -91,10 +92,16 @@ class TrainBatch(tap.Tap):
                 values = "+".join([p[1] for p in pairs])
                 SrcPath = DataName/'point'/'colmap_0'
                 ModelPath = self.ModelDir/DataName.stem/self.ExperimentName/names/values
+                ModelPath.mkdir(parents=True, exist_ok=True)
                 params = " ".join(
                     [f"--{name} {value}" for name, value in pairs])
+                renders_path = ModelPath/'test/ours_30000/renders'
+                if renders_path.exists() and len(list(renders_path.iterdir())) > 0:
+                    print(
+                        f"Skipping {DataName} {pairs} as it already has renders.")
+                    continue
                 command = f"""
-    python train.py --eval --config {self.config_base} -s {SrcPath} -m {ModelPath} {params} \\
+    python {"" if not self.profile else f"-m cProfile -o {ModelPath/'cprofile'}"} train.py --eval --config {self.config_base} -s {SrcPath} -m {ModelPath} {params} \\
     && python test.py --eval --configpath configs/techni_lite/noprior48.json -oc test_iteration=30000 --valloader technicolor --skip_train -s {SrcPath} -m {ModelPath}
     """.strip()
                 run_batch(command)
