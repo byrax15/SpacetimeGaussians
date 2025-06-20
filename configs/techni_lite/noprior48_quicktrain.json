@@ -1,0 +1,16 @@
+{
+    "resolution": 2,
+    "model": "ours_lite",
+    "scaling_lr": 0.005,
+    "trbfslinit": 2.0,
+    "preprocesspoints": 0,
+    "iterations": 7000,
+    "save_iterations": [7000],
+    "test_iteration": 7000,
+    "densify": 3,
+    "desicnt": 12,
+    "duration": 48,
+    "rgbfunction": "None",
+    "loader": "technicolor",
+    "rdpip": "train_ours_lite"
+  }

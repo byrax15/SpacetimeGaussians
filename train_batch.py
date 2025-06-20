@@ -38,6 +38,9 @@ def eval_iter(arg: str):
 
 
 class TrainBatch(tap.Tap):
+    SourceDir: Path  # base directory for source data, aka parent directory of DataNames
+    ModelDir: Path
+    '''base directory for model output, aka parent directory of {DataNames}_{ExperimentName}'''
     DataNames: Optional[list[str]] = None
     DataName: Optional[str] = None
     ExperimentName: str = ""
@@ -48,7 +51,7 @@ class TrainBatch(tap.Tap):
 
     def configure(self):
         self.add_argument("-p", "--parameters",
-                          type=Parameter.from_string, action="append")
+                          type=Parameter.from_string, action="append", default=[])
         self.add_argument("-i", "--iter-parameters", type=eval_iter,
                           choices=[eval_iter(i) for i in ["zip", "product"]], default=eval_iter("product"))
         self.add_argument("-n", "--dryrun", action="store_true", default=False)
@@ -73,15 +76,14 @@ class TrainBatch(tap.Tap):
         pairs: list[tuple[str, str]]
         for DataName in self.DataNames or []:
             for pairs in self.iter_parameters(*[p.items() for p in self.parameters]):
-                names = "_".join([p[0] for p in pairs])
-                values = "_".join([p[1] for p in pairs])
-                ExperimentName = f'_{self.ExperimentName}' if self.ExperimentName else ''
-                SrcPath = f"/home/aq85800/NewVolume/SpacetimeGaussians/blender_prior/{DataName}/point/colmap_0"
-                ModelPath = f"/home/aq85800/NewVolume/SpacetimeGaussians/output_sweep_tests/{DataName}{ExperimentName}/{names}/{values}"
+                names = "+".join([p[0] for p in pairs])
+                values = "+".join([p[1] for p in pairs])
+                SrcPath = self.SourceDir.expanduser()/DataName/'point'/'colmap_0'
+                ModelPath = self.ModelDir.expanduser()/DataName/self.ExperimentName/names/values
                 params = " ".join(
                     [f"--{name} {value}" for name, value in pairs])
                 command = f"""
-    python -m cProfile -o ~/NewVolume/SpacetimeGaussians/profile/{DataName}.cprofile train.py --eval --config {self.config_base} -s {SrcPath} -m {ModelPath} {params} \\
+    python train.py --eval --config {self.config_base} -s {SrcPath} -m {ModelPath} {params} \\
     && python test.py --eval --configpath configs/techni_lite/noprior48.json -oc test_iteration=30000 --valloader technicolor --skip_train -s {SrcPath} -m {ModelPath}
     """.strip()
                 run_batch(command)

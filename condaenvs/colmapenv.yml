@@ -212,3 +212,5 @@ dependencies:
       - opencv-python-headless==4.11.0.86
       - pillow==10.4.0
       - scipy==1.10.1
+      - typed-argument-parser==1.10.1
+      - tyro==0.9.22
