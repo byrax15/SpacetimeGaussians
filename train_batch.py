@@ -1,5 +1,6 @@
 #!/bin/python
 from dataclasses import dataclass
+import glob
 import itertools
 import os
 from pathlib import Path
@@ -38,16 +39,21 @@ def eval_iter(arg: str):
 
 
 class TrainBatch(tap.Tap):
-    SourceDir: Path  # base directory for source data, aka parent directory of DataNames
+    SourceDir: Path
+    '''base directory for source data, aka parent directory of DataNames'''
     ModelDir: Path
     '''base directory for model output, aka parent directory of {DataNames}_{ExperimentName}'''
     DataNames: Optional[list[str]] = None
+    '''list of directory names or glob patterns relative to --SourceDir. If glob patterns are used, they must be quoted, as to prevent shell expansion in the wrong directory.'''
     DataName: Optional[str] = None
+    '''Single directory version of --DataNames, for backward compatibility. Ignored if --DataNames is provided.'''
     ExperimentName: str = ""
     parameters: list[Parameter]
     iter_parameters: Callable[[Iterable], Iterable]
     config_base: Path = Path("configs/techni_lite/noprior48.json")
     dryrun: bool = False
+    _expanded_data: list[Path] = []
+    """Expanded DataNames, populated after processing args"""
 
     def configure(self):
         self.add_argument("-p", "--parameters",
@@ -60,26 +66,31 @@ class TrainBatch(tap.Tap):
         if self.DataNames is None and self.DataName is not None:
             self.DataNames = [self.DataName]
         if self.DataNames is None:
-            raise tap.ArgumentError(
-                self.DataNames, "Provide either DataNames or DataName.")
+            raise SystemExit(
+                '--(DataNames|DataName): One of these must be provided.')
+        self.SourceDir = self.SourceDir.expanduser()
+        self.ModelDir = self.ModelDir.expanduser()
+        self._expanded_data = list(itertools.chain.from_iterable(
+            (self.SourceDir.glob(n) for n in self.DataNames)))
+        if len(self._expanded_data) == 0:
+            raise SystemExit(
+                "--(DataNames|DataName): No matching data directories found relative to --SourceDir.")
 
-    @final
     def train_batch(self):
         def throw_on_error(cmd: str):
             error = os.system(cmd)
             if error != 0:
                 raise ChildProcessError(
                     f"Command '{cmd}' failed with error code {error}")
-
         run_batch: Callable[[str], None] = \
             print if self.dryrun else throw_on_error
-        pairs: list[tuple[str, str]]
-        for DataName in self.DataNames or []:
+        for DataName in self._expanded_data:
+            pairs: list[tuple[str, str]]
             for pairs in self.iter_parameters(*[p.items() for p in self.parameters]):
                 names = "+".join([p[0] for p in pairs])
                 values = "+".join([p[1] for p in pairs])
-                SrcPath = self.SourceDir.expanduser()/DataName/'point'/'colmap_0'
-                ModelPath = self.ModelDir.expanduser()/DataName/self.ExperimentName/names/values
+                SrcPath = DataName/'point'/'colmap_0'
+                ModelPath = self.ModelDir/DataName.stem/self.ExperimentName/names/values
                 params = " ".join(
                     [f"--{name} {value}" for name, value in pairs])
                 command = f"""
