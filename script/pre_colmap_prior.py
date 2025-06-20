@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import itertools
 import shutil
 import subprocess
+import sys
 import time
 from typing import Literal, NamedTuple, Optional, Tuple
 from tap import Tap, tapify
@@ -91,6 +92,8 @@ for cam in frames_dir.glob("cam*"):
     cam_num = int(cam_pattern.match(cam.name)[1])
     for frame in cam.glob(f"*.{args.imageext}"):
         frame_num = int(frame_pattern.match(frame.name)[1])
+        if not (args.startframe <= frame_num < args.endframe):
+            continue
         link_path = colmap_input_image_path(
             point_dir, frame_num, cam_num, args.imageext)
         if args.dryrun:
